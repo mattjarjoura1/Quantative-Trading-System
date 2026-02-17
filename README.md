@@ -18,13 +18,11 @@ A personal research repository for building, testing, and iterating on quantitat
 │   └── processed/       # Derived datasets
 ├── notebooks/           # Exploratory analysis and demos
 ├── src/
-│   ├── types.py         # Shared dataclasses (MarketTick, SpreadState, etc.)
+│   ├── types.py         # Shared dataclasses (Tick, Signal)
 │   ├── data/            # Data sources (Yahoo, CSV replay, Binance)
-│   ├── hedgers/         # Beta estimation (static OLS, Kalman)
-│   ├── models/          # Spread modelling (OU process, half-life)
-│   ├── decisions/       # Signal generation (z-score rules, Bertram)
-│   ├── backtester/      # Backtest engine and performance metrics
-│   └── execution/       # Fee and slippage models
+│   ├── strategy/        # Trading strategies (prices in, signals out)
+│   ├── execution/       # Order management and fill simulation
+│   └── backtester/      # Backtest engine and performance metrics
 ├── tests/               # pytest test suite
 ├── scripts/             # Entry point scripts
 ├── Personal/            # Sandbox notebooks (gitignored)
