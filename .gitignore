@@ -1,8 +1,13 @@
+# Virtual environment
 venv/
 
-repo_structure.txt
-Makefile
+# Personal sandbox (not for repo)
+Personal/
 
+# Reference papers
+readings/
+
+# Data (raw and processed)
 data/
 
 # Python cache
@@ -11,3 +16,17 @@ __pycache__/
 *$py.class
 *.so
 .Python
+
+# OS files
+.DS_Store
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.synctex.gz
+*.pdf
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,32 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage[margin=1in]{geometry}
+
+\title{Kalman Filter for Dynamic Hedge Ratio Estimation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+% Document the state-space formulation, predict-correct cycle,
+% and how beta/spread are extracted.
+% Reference: Kalman (1960), Elliott et al. (2005)
+
+\section{Problem Statement}
+% Why static OLS beta fails and why we need dynamic estimation
+
+\section{State-Space Formulation}
+% State equation: beta_t = beta_{t-1} + w_t
+% Observation equation: y_t = beta_t * x_t + v_t
+
+\section{Predict Step}
+% Prior estimate and covariance propagation
+
+\section{Update Step}
+% Kalman gain, posterior estimate, covariance update
+
+\section{Implementation Notes}
+% Scalar vs matrix form, parameter sensitivity (delta, R)
+
+\end{document}
