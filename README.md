@@ -51,3 +51,26 @@ make clean     # Remove the venv
 ## Standards
 
 See [STANDARDS.md](STANDARDS.md) for coding conventions, naming rules, and documentation requirements.
+
+## Future Development
+
+### Live Execution: Threading the Pipeline
+
+The current run loop is sequential — data, strategy, and execution operate on a single thread:
+
+```python
+for tick in data:
+    signal = strategy.on_tick(tick)  # blocks until maths is done
+    if signal:
+        execution.execute(signal)
+```
+
+This is fine for backtesting on daily bars, but **will not work for live trading at high tick rates**. If the strategy computation (Kalman + OU refit + Bertram) takes longer than the interval between incoming ticks, the pipeline falls behind. The data the strategy operates on becomes stale, and the lag compounds over time.
+
+The fix is to decouple ingestion from computation using threads and queues:
+
+- **Data thread**: receives ticks from the websocket and writes to a shared buffer. Never blocked by strategy computation.
+- **Strategy thread**: reads the latest available data from the buffer at its own cadence, runs the maths, and emits signals downstream.
+- **Execution thread**: receives signals and acts independently.
+
+Components can reference downstream (strategy knows about execution) but never upstream (execution never calls back into strategy, strategy never blocks data). This is a plumbing change in the run script — the ABCs, dataclasses, and concrete implementations remain unchanged.
