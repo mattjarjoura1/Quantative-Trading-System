@@ -1,1 +1,1 @@
-from src.types import Tick, Signal
+from src.types import OrderBookEntry, Signal
