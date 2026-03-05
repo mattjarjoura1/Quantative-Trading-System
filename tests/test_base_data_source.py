@@ -1,11 +1,15 @@
 """Tests for Layer 4a — BaseDataSource ABC."""
 
-import threading
+import asyncio
+
+import pytest
 
 from src.bus.buffer_view import BufferView
 from src.bus.message_bus import MessageBus
 from src.data.base_data_source import BaseDataSource
 from src.types import OrderBookEntry
+
+PUBLISH_CH = "market_data"
 
 
 # ---------------------------------------------------------------------------
@@ -13,7 +17,9 @@ from src.types import OrderBookEntry
 # ---------------------------------------------------------------------------
 
 def make_bus() -> MessageBus:
-    return MessageBus(market_data_capacity=64, signal_capacity=64)
+    bus = MessageBus()
+    bus.create_channel(PUBLISH_CH, capacity=64)
+    return bus
 
 
 def make_entry(symbol: str = "AAPL", timestamp_ms: int = 1_000_000) -> OrderBookEntry:
@@ -29,11 +35,11 @@ class ListSource(BaseDataSource):
     """Emits entries from a list then stops itself."""
 
     def __init__(self, bus: MessageBus, entries: list[OrderBookEntry]) -> None:
-        super().__init__(bus)
+        super().__init__(bus, PUBLISH_CH)
         self._entries = list(entries)
         self._idx = 0
 
-    def fetch(self) -> OrderBookEntry | None:
+    async def fetch(self) -> OrderBookEntry | None:
         if self._idx >= len(self._entries):
             self.stop()
             return None
@@ -43,9 +49,16 @@ class ListSource(BaseDataSource):
 
 
 class NoneSource(BaseDataSource):
-    """Always returns None — simulates a source with no data yet."""
+    """Always returns None — simulates a source waiting for data.
 
-    def fetch(self) -> OrderBookEntry | None:
+    Yields to the event loop on each fetch to mimic real async I/O.
+    """
+
+    def __init__(self, bus: MessageBus) -> None:
+        super().__init__(bus, PUBLISH_CH)
+
+    async def fetch(self) -> OrderBookEntry | None:
+        await asyncio.sleep(0)  # simulate async I/O, allow stop() to be seen
         return None
 
 
@@ -54,47 +67,47 @@ class NoneSource(BaseDataSource):
 # ---------------------------------------------------------------------------
 
 class TestBaseDataSource:
-    def test_run_publishes_all_entries(self):
+    async def test_run_publishes_all_entries(self):
         bus = make_bus()
         entries = [make_entry("AAPL", ts) for ts in [1, 2, 3]]
-        ListSource(bus, entries).run()
+        await ListSource(bus, entries).run()
 
-        view = BufferView(bus.get_market_data_buffer("AAPL"))
+        view = BufferView(bus.channel(PUBLISH_CH).get_buffer("AAPL"))
         result = view.last_n(10)
         assert len(result) == 3
         assert [e.timestamp_ms for e in result] == [1, 2, 3]
 
-    def test_none_fetch_does_not_break_loop(self):
+    async def test_none_fetch_does_not_break_loop(self):
         """None from fetch is skipped; the loop continues and processes the next entry."""
         bus = make_bus()
 
         class OnceNoneThenEntry(BaseDataSource):
             def __init__(self, b):
-                super().__init__(b)
+                super().__init__(b, PUBLISH_CH)
                 self._calls = 0
 
-            def fetch(self):
+            async def fetch(self):
                 self._calls += 1
                 if self._calls == 1:
                     return None
                 self.stop()
                 return make_entry("AAPL", self._calls)
 
-        OnceNoneThenEntry(bus).run()
-        view = BufferView(bus.get_market_data_buffer("AAPL"))
+        await OnceNoneThenEntry(bus).run()
+        view = BufferView(bus.channel(PUBLISH_CH).get_buffer("AAPL"))
         assert len(view.last_n(10)) == 1
 
-    def test_stop_exits_run(self):
-        """stop() called from another thread causes run() to exit cleanly."""
+    async def test_stop_exits_run(self):
+        """stop() causes run() to exit on its next iteration."""
         bus = make_bus()
         source = NoneSource(bus)
-        t = threading.Thread(target=source.run)
-        t.start()
-        source.stop()
-        t.join(timeout=1.0)
-        assert not t.is_alive()
 
-    def test_entries_appear_in_correct_buffer(self):
+        task = asyncio.create_task(source.run())
+        await asyncio.sleep(0)  # yield to let the task start
+        source.stop()
+        await asyncio.wait_for(task, timeout=1.0)
+
+    async def test_entries_appear_in_correct_buffer(self):
         """Each entry lands in the buffer keyed by its own symbol."""
         bus = make_bus()
         entries = [
@@ -102,22 +115,32 @@ class TestBaseDataSource:
             make_entry("GOOG", 2),
             make_entry("AAPL", 3),
         ]
-        ListSource(bus, entries).run()
+        await ListSource(bus, entries).run()
 
-        aapl = BufferView(bus.get_market_data_buffer("AAPL"))
-        goog = BufferView(bus.get_market_data_buffer("GOOG"))
+        ch = bus.channel(PUBLISH_CH)
+        aapl = BufferView(ch.get_buffer("AAPL"))
+        goog = BufferView(ch.get_buffer("GOOG"))
         assert len(aapl.last_n(10)) == 2
         assert len(goog.last_n(10)) == 1
 
-    def test_empty_list_loops_until_stopped(self):
+    async def test_empty_list_loops_until_stopped(self):
         """A source with no data loops on None returns until stop() is called."""
         bus = make_bus()
         source = NoneSource(bus)
-        t = threading.Thread(target=source.run)
-        t.start()
+
+        task = asyncio.create_task(source.run())
+        await asyncio.sleep(0)
         source.stop()
-        t.join(timeout=1.0)
-        assert not t.is_alive()
-        # Nothing was published
-        buf = bus.get_market_data_buffer("AAPL")
-        assert buf.count == 0
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert bus.channel(PUBLISH_CH).get_buffer("AAPL").count == 0
+
+    async def test_publishes_only_to_named_channel(self):
+        """Data published to publish_channel does not appear on other channels."""
+        bus = make_bus()
+        bus.create_channel("other", capacity=64)
+        other_event = bus.channel("other").register_listener("watcher")
+
+        await ListSource(bus, [make_entry("AAPL", 1)]).run()
+
+        assert not other_event.is_set()

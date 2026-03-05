@@ -7,13 +7,19 @@ from src.bus.message_bus import MessageBus
 from src.strategy.base_strategy import BaseStrategy
 from src.types import OrderBookEntry, Signal
 
+LISTEN_CH = "market_data"
+PUBLISH_CH = "strategy_signals"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def make_bus() -> MessageBus:
-    return MessageBus(market_data_capacity=64, signal_capacity=64)
+    bus = MessageBus()
+    bus.create_channel(LISTEN_CH, capacity=64)
+    bus.create_channel(PUBLISH_CH, capacity=64)
+    return bus
 
 
 def make_entry(symbol: str = "AAPL", timestamp_ms: int = 1_000_000) -> OrderBookEntry:
@@ -40,7 +46,7 @@ class FixedSignalStrategy(BaseStrategy):
     """Returns a preset signal once then stops."""
 
     def __init__(self, bus: MessageBus, listener_id: str, signal: Signal) -> None:
-        super().__init__(bus, listener_id)
+        super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
         self._signal = signal
 
     def on_data(self, dirty: set[str]) -> Signal | None:
@@ -51,6 +57,9 @@ class FixedSignalStrategy(BaseStrategy):
 class NullStrategy(BaseStrategy):
     """Always returns None then stops."""
 
+    def __init__(self, bus: MessageBus, listener_id: str) -> None:
+        super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
+
     def on_data(self, dirty: set[str]) -> Signal | None:
         self.stop()
         return None
@@ -60,7 +69,7 @@ class DirtyCapture(BaseStrategy):
     """Captures the dirty set passed to on_data."""
 
     def __init__(self, bus: MessageBus, listener_id: str) -> None:
-        super().__init__(bus, listener_id)
+        super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
         self.captured: set[str] = set()
 
     def on_data(self, dirty: set[str]) -> Signal | None:
@@ -70,10 +79,10 @@ class DirtyCapture(BaseStrategy):
 
 
 class CountingStrategy(BaseStrategy):
-    """Counts on_data calls; stops and signals when target reached."""
+    """Counts on_data calls; signals when each call completes."""
 
     def __init__(self, bus: MessageBus, listener_id: str, target: int) -> None:
-        super().__init__(bus, listener_id)
+        super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
         self._target = target
         self.call_count = 0
         self.processed = threading.Event()
@@ -91,43 +100,46 @@ class CountingStrategy(BaseStrategy):
 # ---------------------------------------------------------------------------
 
 class TestBaseStrategy:
-    def test_signal_published_to_bus(self):
-        """on_data returning a Signal causes it to appear in the signal buffer."""
+    def test_signal_published_to_publish_channel(self):
+        """on_data returning a Signal causes it to appear on the publish channel."""
         bus = make_bus()
         sig = make_signal("AAPL")
         strategy = FixedSignalStrategy(bus, "strat", sig)
 
         t = threading.Thread(target=strategy.run)
         t.start()
-        bus.publish_market_data("AAPL", make_entry())
+        bus.channel(LISTEN_CH).publish("AAPL", make_entry())
         t.join(timeout=1.0)
 
-        view = BufferView(bus.get_signal_buffer("AAPL"))
+        view = BufferView(bus.channel(PUBLISH_CH).get_buffer("AAPL"))
         result = view.last_n(10)
         assert len(result) == 1
         assert result[0] == sig
 
     def test_none_return_no_signal_published(self):
-        """on_data returning None publishes nothing to the signal buffer."""
+        """on_data returning None publishes nothing to the publish channel."""
         bus = make_bus()
         strategy = NullStrategy(bus, "strat")
 
         t = threading.Thread(target=strategy.run)
         t.start()
-        bus.publish_market_data("AAPL", make_entry())
+        bus.channel(LISTEN_CH).publish("AAPL", make_entry())
         t.join(timeout=1.0)
 
-        assert bus.get_signal_buffer("AAPL").count == 0
+        assert bus.channel(PUBLISH_CH).get_buffer("AAPL").count == 0
 
     def test_stop_unblocks_event_wait(self):
         """stop() wakes a strategy sleeping on event.wait() and exits run()."""
         bus = make_bus()
 
         class BlockingStrategy(BaseStrategy):
+            def __init__(self, b):
+                super().__init__(b, "strat", LISTEN_CH, PUBLISH_CH)
+
             def on_data(self, dirty: set[str]) -> Signal | None:
                 return None
 
-        strategy = BlockingStrategy(bus, "strat")
+        strategy = BlockingStrategy(bus)
         t = threading.Thread(target=strategy.run)
         t.start()
         strategy.stop()
@@ -141,13 +153,13 @@ class TestBaseStrategy:
 
         t = threading.Thread(target=strategy.run)
         t.start()
-        bus.publish_market_data("AAPL", make_entry("AAPL"))
+        bus.channel(LISTEN_CH).publish("AAPL", make_entry("AAPL"))
         t.join(timeout=1.0)
 
         assert "AAPL" in strategy.captured
 
     def test_on_data_called_each_time_event_fires(self):
-        """on_data is called once per event fire, not batched or skipped."""
+        """on_data is called once per event fire."""
         bus = make_bus()
         strategy = CountingStrategy(bus, "strat", target=3)
 
@@ -156,8 +168,34 @@ class TestBaseStrategy:
 
         for _ in range(3):
             strategy.processed.clear()
-            bus.publish_market_data("AAPL", make_entry())
+            bus.channel(LISTEN_CH).publish("AAPL", make_entry())
             strategy.processed.wait(timeout=1.0)
 
         t.join(timeout=1.0)
         assert strategy.call_count == 3
+
+    def test_signal_does_not_trigger_own_listener(self):
+        """Signal published to publish_channel does not cause a second on_data call.
+
+        If channels were not isolated, the signal publish would wake the strategy's
+        listen_channel listener again, resulting in on_data being called twice.
+        """
+        bus = make_bus()
+        call_count = 0
+
+        class SignalAndCount(BaseStrategy):
+            def __init__(self, b):
+                super().__init__(b, "strat", LISTEN_CH, PUBLISH_CH)
+
+            def on_data(self, dirty: set[str]) -> Signal | None:
+                nonlocal call_count
+                call_count += 1
+                self.stop()
+                return make_signal()  # publishes to PUBLISH_CH
+
+        t = threading.Thread(target=SignalAndCount(bus).run)
+        t.start()
+        bus.channel(LISTEN_CH).publish("AAPL", make_entry())
+        t.join(timeout=1.0)
+
+        assert call_count == 1

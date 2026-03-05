@@ -1,43 +1,85 @@
-"""Random strategy for testing the pipeline end-to-end."""
+"""Random strategy for pipeline testing."""
+
+import time
 
 import numpy as np
 
-from src.strategy.base import BaseStrategy
-from src.types import Tick, Signal
+from src.bus import MessageBus, BufferView
+from src.strategy import BaseStrategy
+from src.types import OrderBookEntry, Signal
 
 # Probability of generating a signal on any given tick
 RANDOM_THRESHOLD = 0.3
-# Maximum position size in either direction (units of stock)
+# Maximum position size in units
 MAX_TRADE = 2
 
 
 class RandomStrategy(BaseStrategy):
-    """Emits random target positions for pipeline testing.
+    """Emits random buy/sell signals for end-to-end pipeline testing.
 
-    Not a real strategy — used to verify that Data → Strategy → Execution
-    wiring works correctly. To be removed once real strategies are in place.
+    Not a real strategy — used to verify that DataSource → Strategy → Execution
+    wiring works correctly end-to-end. Remove once real strategies are in place.
 
     Args:
-        tickers: List of assets to generate random positions for.
+        bus: The shared message bus.
+        listener_id: Unique identifier for this listener's dirty-set slot.
+        listen_channel: Channel name to listen on for market data.
+        publish_channel: Channel name to publish signals to.
+        symbols: Asset symbols to watch and generate signals for.
     """
 
-    def __init__(self, tickers: list[str]) -> None:
-        self.tickers = tickers
-
-    def on_tick(self, tick: Tick) -> Signal | None:
-        """Randomly emit a signal with probability RANDOM_THRESHOLD.
+    def __init__(
+        self,
+        bus: MessageBus,
+        listener_id: str,
+        listen_channel: str,
+        publish_channel: str,
+        symbols: list[str] = ["btcusdt"],
+    ) -> None:
+        """Set up buffer views for each symbol.
 
         Args:
-            tick: Incoming price observation (used for timestamp only).
-
-        Returns:
-            A Signal with random positions per asset, or None.
+            bus: The shared message bus.
+            listener_id: Unique identifier for this listener's dirty-set slot.
+            listen_channel: Channel name to listen on for market data.
+            publish_channel: Channel name to publish signals to.
+            symbols: Asset symbols to watch and generate signals for.
         """
-        if np.random.uniform() > RANDOM_THRESHOLD:
-            return None
-
-        positions = {
-            tick.asset: np.random.uniform(-MAX_TRADE, MAX_TRADE)
+        super().__init__(bus, listener_id, listen_channel, publish_channel)
+        self._views: dict[str, BufferView] = {
+            symbol: BufferView(self._listen_ch.get_buffer(symbol))
+            for symbol in symbols
         }
 
-        return Signal(timestamp=tick.timestamp, positions=positions)
+    def on_data(self, dirty: set[str]) -> Signal | None:
+        """Drain new entries for each dirty symbol and emit a random signal.
+
+        Args:
+            dirty: Set of symbols with new data since last wake.
+
+        Returns:
+            A random Signal for the last updated watched symbol, or None.
+        """
+        signal = None
+
+        for symbol in dirty:
+            if symbol not in self._views:
+                continue
+
+            data: list[OrderBookEntry] = self._views[symbol].drain()
+
+            if not data:
+                continue
+
+            entry = data[-1]
+            signal = Signal(
+                timestamp_ms=entry.timestamp_ms,
+                symbol=entry.symbol,
+                side=np.random.choice(["BUY", "SELL"]),
+                quantity=MAX_TRADE * np.random.random(),
+                price=entry.asks[0][0],
+                metadata={},
+            )
+
+        # time.sleep(2)
+        return signal

@@ -1,4 +1,4 @@
-"""Abstract base class for all strategies."""
+"""Abstract base class for all risk engines."""
 
 from abc import ABC, abstractmethod
 
@@ -6,17 +6,23 @@ from src.bus.message_bus import MessageBus
 from src.types import Signal
 
 
-class BaseStrategy(ABC):
-    """Consumer/producer ABC. Reads market data from one channel, publishes signals to another.
+class BaseRiskEngine(ABC):
+    """Consumer/producer ABC. Reads signals from one channel, publishes approved signals to another.
 
-    The ABC owns the listener lifecycle: register, event wait, clear, get dirty,
-    publish. The concrete class owns computation and decides what "ready" means.
+    Sits between strategy and execution. Listens on the strategy's output
+    channel, evaluates each signal for risk, and either passes it through,
+    modifies it, or vetoes it by returning None.
+
+    Because listen and publish channels are independent, publishing to the
+    approved_signals channel never wakes this engine's own listener — the
+    infinite loop that would arise with a flat listener pool is structurally
+    impossible.
 
     Args:
         bus: The shared message bus.
         listener_id: Unique identifier for this listener's dirty-set slot.
-        listen_channel: Channel name to listen on for market data.
-        publish_channel: Channel name to publish signals to.
+        listen_channel: Channel name to listen on for incoming signals.
+        publish_channel: Channel name to publish approved signals to.
     """
 
     def __init__(
@@ -31,8 +37,8 @@ class BaseStrategy(ABC):
         Args:
             bus: The shared message bus.
             listener_id: Unique identifier for this listener's dirty-set slot.
-            listen_channel: Channel name to listen on for market data.
-            publish_channel: Channel name to publish signals to.
+            listen_channel: Channel name to listen on for incoming signals.
+            publish_channel: Channel name to publish approved signals to.
         """
         self._listener_id = listener_id
         self._listen_ch = bus.channel(listen_channel)
@@ -41,16 +47,16 @@ class BaseStrategy(ABC):
         self._running = True
 
     def run(self) -> None:
-        """Event-driven loop. Sleeps until data arrives, then calls on_data.
+        """Event-driven loop. Sleeps until a signal arrives, then calls evaluate.
 
-        Publishes the returned Signal to the publish channel if on_data
+        Publishes the returned Signal to the publish channel if evaluate
         returns one.
         """
         while self._running:
             self._event.wait()
             self._event.clear()
             dirty = self._listen_ch.get_dirty(self._listener_id)
-            signal = self.on_data(dirty)
+            signal = self.evaluate(dirty)
             if signal:
                 self._publish_ch.publish(signal.symbol, signal)
 
@@ -60,12 +66,12 @@ class BaseStrategy(ABC):
         self._event.set()
 
     @abstractmethod
-    def on_data(self, dirty: set[str]) -> Signal | None:
-        """Process new market data and optionally emit a signal.
+    def evaluate(self, dirty: set[str]) -> Signal | None:
+        """Evaluate incoming signals and decide whether to pass them through.
 
         Args:
-            dirty: Set of symbols that have new data since last wake.
+            dirty: Set of symbols that have new signals since last wake.
 
         Returns:
-            A Signal to publish, or None if no action required.
+            A Signal to forward, or None to veto.
         """
