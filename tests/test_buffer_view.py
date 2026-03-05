@@ -256,3 +256,42 @@ class TestReadIdx:
         view: BufferView[int] = BufferView(buf)
         view.last_n(2)
         assert view.read_idx == 3
+
+
+class TestFromStart:
+    def test_default_starts_at_write_idx(self) -> None:
+        buf = _filled(8, 5)
+        view: BufferView[int] = BufferView(buf)
+        assert view.read_idx == 5
+
+    def test_from_start_empty_buffer_read_idx_is_zero(self) -> None:
+        buf: RingBuffer[int] = RingBuffer(8)
+        view: BufferView[int] = BufferView(buf, from_start=True)
+        assert view.read_idx == 0
+
+    def test_from_start_drain_returns_all_existing_items(self) -> None:
+        buf = _filled(8, 5)
+        view: BufferView[int] = BufferView(buf, from_start=True)
+        assert view.drain() == [0, 1, 2, 3, 4]
+
+    def test_from_start_wrapped_buffer_starts_at_oldest_valid(self) -> None:
+        buf = _filled(3, 5)  # capacity 3, holds 2,3,4; write_idx=5, count=3
+        view: BufferView[int] = BufferView(buf, from_start=True)
+        assert view.read_idx == 2  # oldest valid = write_idx - count = 5 - 3
+
+    def test_from_start_wrapped_buffer_drain_returns_surviving_items(self) -> None:
+        buf = _filled(3, 5)  # capacity 3, holds 2,3,4
+        view: BufferView[int] = BufferView(buf, from_start=True)
+        assert view.drain() == [2, 3, 4]
+
+    def test_from_start_false_drain_returns_empty_for_existing_data(self) -> None:
+        buf = _filled(8, 5)
+        view: BufferView[int] = BufferView(buf, from_start=False)
+        assert view.drain() == []
+
+    def test_from_start_subsequent_drain_sees_only_new_items(self) -> None:
+        buf = _filled(8, 3)
+        view: BufferView[int] = BufferView(buf, from_start=True)
+        view.drain()  # consume existing [0, 1, 2]
+        buf.append(99)
+        assert view.drain() == [99]

@@ -1,9 +1,9 @@
-"""Tests for Layer 0 data contracts: OrderBookEntry and Signal."""
+"""Tests for Layer 0 data contracts: OrderBookEntry, PriceTick, and Signal."""
 
 import pytest
 from dataclasses import FrozenInstanceError
 
-from src.types import OrderBookEntry, Signal
+from src.types import OrderBookEntry, PriceTick, Signal
 
 
 # ---------------------------------------------------------------------------
@@ -333,3 +333,90 @@ class TestSignalMetadataEquality:
         )
         assert s1 == s2
         assert hash(s1) == hash(s2)
+
+
+# ---------------------------------------------------------------------------
+# PriceTick helpers
+# ---------------------------------------------------------------------------
+
+def make_tick(**overrides) -> PriceTick:
+    defaults = dict(symbol="GOOG", timestamp_ms=1_000_000, price=150.0)
+    return PriceTick(**{**defaults, **overrides})
+
+
+# ---------------------------------------------------------------------------
+# PriceTick tests
+# ---------------------------------------------------------------------------
+
+class TestPriceTickConstruction:
+    def test_valid_construction(self):
+        tick = make_tick()
+        assert tick.symbol == "GOOG"
+        assert tick.timestamp_ms == 1_000_000
+        assert tick.price == 150.0
+
+    def test_different_symbols(self):
+        assert make_tick(symbol="BTC-USD").symbol == "BTC-USD"
+        assert make_tick(symbol="AAPL").symbol == "AAPL"
+
+    def test_various_prices(self):
+        assert make_tick(price=0.001).price == 0.001
+        assert make_tick(price=1_000_000.0).price == 1_000_000.0
+
+
+class TestPriceTickValidation:
+    def test_empty_symbol_raises(self):
+        with pytest.raises(ValueError, match="symbol"):
+            make_tick(symbol="")
+
+    def test_zero_timestamp_raises(self):
+        with pytest.raises(ValueError, match="timestamp_ms"):
+            make_tick(timestamp_ms=0)
+
+    def test_negative_timestamp_raises(self):
+        with pytest.raises(ValueError, match="timestamp_ms"):
+            make_tick(timestamp_ms=-1)
+
+    def test_zero_price_raises(self):
+        with pytest.raises(ValueError, match="price"):
+            make_tick(price=0.0)
+
+    def test_negative_price_raises(self):
+        with pytest.raises(ValueError, match="price"):
+            make_tick(price=-1.0)
+
+
+class TestPriceTickImmutability:
+    def test_frozen(self):
+        tick = make_tick()
+        with pytest.raises(FrozenInstanceError):
+            tick.price = 999.0  # type: ignore[misc]
+
+
+class TestPriceTickValidateFlag:
+    def test_validate_false_skips_all_checks(self):
+        tick = PriceTick(symbol="", timestamp_ms=-1, price=-99.0, _validate=False)
+        assert tick.symbol == ""
+        assert tick.price == -99.0
+
+    def test_validate_flag_ignored_in_equality(self):
+        t1 = make_tick()
+        t2 = PriceTick(symbol=t1.symbol, timestamp_ms=t1.timestamp_ms,
+                       price=t1.price, _validate=False)
+        assert t1 == t2
+        assert hash(t1) == hash(t2)
+
+
+class TestPriceTickHashability:
+    def test_hash_succeeds(self):
+        assert isinstance(hash(make_tick()), int)
+
+    def test_usable_in_set(self):
+        t1 = make_tick()
+        t2 = make_tick()
+        assert len({t1, t2}) == 1
+
+    def test_usable_as_dict_key(self):
+        tick = make_tick()
+        d = {tick: "close"}
+        assert d[tick] == "close"

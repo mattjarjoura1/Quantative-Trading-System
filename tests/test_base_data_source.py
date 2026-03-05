@@ -7,7 +7,9 @@ import pytest
 from src.bus.buffer_view import BufferView
 from src.bus.message_bus import MessageBus
 from src.data.base_data_source import BaseDataSource
-from src.types import OrderBookEntry
+from src.data.binance_data_source import BinanceDataSource
+from src.strategy.base_strategy import BaseStrategy
+from src.types import OrderBookEntry, PriceTick
 
 PUBLISH_CH = "market_data"
 
@@ -31,8 +33,10 @@ def make_entry(symbol: str = "AAPL", timestamp_ms: int = 1_000_000) -> OrderBook
     )
 
 
-class ListSource(BaseDataSource):
+class ListSource(BaseDataSource[OrderBookEntry]):
     """Emits entries from a list then stops itself."""
+
+    PRODUCES = OrderBookEntry
 
     def __init__(self, bus: MessageBus, entries: list[OrderBookEntry]) -> None:
         super().__init__(bus, PUBLISH_CH)
@@ -48,11 +52,13 @@ class ListSource(BaseDataSource):
         return entry
 
 
-class NoneSource(BaseDataSource):
+class NoneSource(BaseDataSource[OrderBookEntry]):
     """Always returns None — simulates a source waiting for data.
 
     Yields to the event loop on each fetch to mimic real async I/O.
     """
+
+    PRODUCES = OrderBookEntry
 
     def __init__(self, bus: MessageBus) -> None:
         super().__init__(bus, PUBLISH_CH)
@@ -144,3 +150,26 @@ class TestBaseDataSource:
         await ListSource(bus, [make_entry("AAPL", 1)]).run()
 
         assert not other_event.is_set()
+
+
+class TestCompatibility:
+    def test_binance_source_produces_order_book_entry(self):
+        assert BinanceDataSource.PRODUCES is OrderBookEntry
+
+    def test_list_source_has_produces(self):
+        assert ListSource.PRODUCES is OrderBookEntry
+
+    def test_type_mismatch_detectable(self):
+        """Simulate the orchestrator compatibility check."""
+        class PriceTickStrategy(BaseStrategy[PriceTick]):
+            CONSUMES = PriceTick
+            def on_data(self, dirty: set[str]): return None
+
+        assert BinanceDataSource.PRODUCES != PriceTickStrategy.CONSUMES
+
+    def test_type_match_passes(self):
+        class OrderBookStrategy(BaseStrategy[OrderBookEntry]):
+            CONSUMES = OrderBookEntry
+            def on_data(self, dirty: set[str]): return None
+
+        assert BinanceDataSource.PRODUCES == OrderBookStrategy.CONSUMES

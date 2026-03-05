@@ -1,38 +1,59 @@
 """Simulated execution handler for backtesting."""
 
-import pandas as pd
+import time
 
-from src.execution.base import BaseExecution
-from src.types import Signal
+from src.bus.buffer_view import BufferView
+from src.bus.message_bus import MessageBus
+from src.execution.base_execution import BaseExecution
+from src.types import TradeRecord, Signal
 
 
 class SimulationExecution(BaseExecution):
-    """Records signals as a trade log without executing real orders.
+    """Records approved signals as trade records without executing real orders.
 
-    Stores each signal's individual asset positions in a flat list
-    and converts to a DataFrame on demand for analysis.
+    Accepts any symbol by creating BufferViews lazily on first encounter,
+    using from_start=True to avoid missing the signal that triggered the wake.
+    Fill price defaults to signal.price (perfect fill assumption).
+
+    Args:
+        bus: The shared message bus.
+        listener_id: Unique identifier for this listener's dirty-set slot.
+        listen_channel: Channel name to listen on for approved signals.
     """
 
-    def __init__(self) -> None:
-        self.raw_trade_log: list[dict] = []
-
-    def execute(self, signal: Signal) -> None:
-        """Append each asset position from the signal to the trade log.
+    def __init__(
+        self,
+        bus: MessageBus,
+        listener_id: str,
+        listen_channel: str,
+    ) -> None:
+        """Register as a listener and initialise the trade log.
 
         Args:
-            signal: Target portfolio state emitted by a strategy.
+            bus: The shared message bus.
+            listener_id: Unique identifier for this listener's dirty-set slot.
+            listen_channel: Channel name to listen on for approved signals.
         """
-        for asset, target_position in signal.positions.items():
-            self.raw_trade_log.append({
-                "timestamp": signal.timestamp,
-                "asset": asset,
-                "target_position": target_position,
-            })
+        super().__init__(bus, listener_id, listen_channel)
+        self._views: dict[str, BufferView[Signal]] = {}
+        self.trade_log: list[TradeRecord] = []
 
-    def get_trade_log(self) -> pd.DataFrame:
-        """Convert the raw trade log to a DataFrame.
+    def execute(self, dirty: set[str]) -> None:
+        """Drain approved signals for each dirty symbol and record them.
 
-        Returns:
-            DataFrame with columns: timestamp, asset, target_position.
+        Args:
+            dirty: Set of symbols that have new approved signals since last wake.
         """
-        return pd.DataFrame(self.raw_trade_log)
+        now_ms = int(time.time() * 1000)
+        for symbol in dirty:
+            if symbol not in self._views:
+                self._views[symbol] = BufferView(
+                    self._listen_ch.get_buffer(symbol), from_start=True
+                )
+            
+            for signal in self._views[symbol].drain():
+                self.trade_log.append(TradeRecord(
+                    signal=signal,
+                    fill_price=signal.price, # TODO: get the last updated price in the buffer
+                    filled_at_ms=now_ms,
+                ))

@@ -73,6 +73,43 @@ class OrderBookEntry:
 
 
 @dataclass(frozen=True)
+class PriceTick:
+    """A single price observation for one symbol at one point in time.
+
+    Used by price-only data sources (Yahoo Finance, CSV historical data,
+    L1 feeds). Simpler than OrderBookEntry — no bid/ask structure, just a
+    price. Strategies consuming this type operate on close prices or similar
+    scalar values.
+
+    Attributes:
+        symbol: Asset identifier (e.g. "BTC-USD", "GOOG").
+        timestamp_ms: Millisecond-precision unix timestamp.
+        price: The observed price (positive).
+        _validate: When False, skips all validation. For hot-path replay.
+    """
+
+    symbol: str
+    timestamp_ms: int
+    price: float
+    _validate: bool = field(default=True, compare=False, repr=False, hash=False)
+
+    def __post_init__(self) -> None:
+        """Validate fields at construction time.
+
+        Raises:
+            ValueError: If any field fails its constraint.
+        """
+        if not self._validate:
+            return
+        if not self.symbol:
+            raise ValueError("symbol must be a non-empty string.")
+        if self.timestamp_ms <= 0:
+            raise ValueError("timestamp_ms must be a positive integer.")
+        if self.price <= 0:
+            raise ValueError("price must be positive.")
+
+
+@dataclass(frozen=True)
 class Signal:
     """A trading signal emitted by a strategy for a single symbol.
 
@@ -117,3 +154,24 @@ class Signal:
             raise ValueError("quantity must be non-negative")
         if self.price <= 0:
             raise ValueError("price must be positive")
+
+
+@dataclass(frozen=True)
+class TradeRecord:
+    """An executed trade record produced by SimulationExecution.
+
+    Wraps a Signal with execution metadata. Designed as an extension point:
+    future implementations can add slippage, commission, or exchange-specific
+    fields without modifying Signal.
+
+    Attributes:
+        signal: The approved Signal that triggered the trade.
+        fill_price: Actual execution price. In simulation this equals
+            signal.price (perfect fill); live execution can set it from
+            the order book at time of fill.
+        filled_at_ms: Millisecond timestamp when execution was processed.
+    """
+
+    signal: Signal
+    fill_price: float
+    filled_at_ms: int

@@ -1,12 +1,15 @@
 """Abstract base class for all strategies."""
 
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
 
 from src.bus.message_bus import MessageBus
 from src.types import Signal
 
+T = TypeVar("T")
 
-class BaseStrategy(ABC):
+
+class BaseStrategy(ABC, Generic[T]):
     """Consumer/producer ABC. Reads market data from one channel, publishes signals to another.
 
     The ABC owns the listener lifecycle: register, event wait, clear, get dirty,
@@ -18,6 +21,8 @@ class BaseStrategy(ABC):
         listen_channel: Channel name to listen on for market data.
         publish_channel: Channel name to publish signals to.
     """
+
+    CONSUMES: type  # must be set by every concrete subclass
 
     def __init__(
         self,
@@ -50,8 +55,8 @@ class BaseStrategy(ABC):
             self._event.wait()
             self._event.clear()
             dirty = self._listen_ch.get_dirty(self._listener_id)
-            signal = self.on_data(dirty)
-            if signal:
+            signals = self.on_data(dirty)
+            for signal in signals:
                 self._publish_ch.publish(signal.symbol, signal)
 
     def stop(self) -> None:
@@ -60,12 +65,12 @@ class BaseStrategy(ABC):
         self._event.set()
 
     @abstractmethod
-    def on_data(self, dirty: set[str]) -> Signal | None:
-        """Process new market data and optionally emit a signal.
+    def on_data(self, dirty: set[str]) -> list[Signal]:
+        """Process new market data and emit zero or more signals.
 
         Args:
             dirty: Set of symbols that have new data since last wake.
 
         Returns:
-            A Signal to publish, or None if no action required.
+            A list of Signals to publish. Empty list means no action.
         """

@@ -14,7 +14,8 @@ RANDOM_THRESHOLD = 0.3
 MAX_TRADE = 2
 
 
-class RandomStrategy(BaseStrategy):
+class RandomStrategyOBE(BaseStrategy[OrderBookEntry]):
+    CONSUMES = OrderBookEntry
     """Emits random buy/sell signals for end-to-end pipeline testing.
 
     Not a real strategy — used to verify that DataSource → Strategy → Execution
@@ -51,16 +52,17 @@ class RandomStrategy(BaseStrategy):
             for symbol in symbols
         }
 
-    def on_data(self, dirty: set[str]) -> Signal | None:
+    def on_data(self, dirty: set[str]) -> list[Signal]:
         """Drain new entries for each dirty symbol and emit a random signal.
 
         Args:
             dirty: Set of symbols with new data since last wake.
 
         Returns:
-            A random Signal for the last updated watched symbol, or None.
+            A list containing one random Signal per watched dirty symbol,
+            or an empty list if no watched symbols have new data.
         """
-        signal = None
+        signals = []
 
         for symbol in dirty:
             if symbol not in self._views:
@@ -72,14 +74,13 @@ class RandomStrategy(BaseStrategy):
                 continue
 
             entry = data[-1]
-            signal = Signal(
+            signals.append(Signal(
                 timestamp_ms=entry.timestamp_ms,
                 symbol=entry.symbol,
                 side=np.random.choice(["BUY", "SELL"]),
                 quantity=MAX_TRADE * np.random.random(),
                 price=entry.asks[0][0],
                 metadata={},
-            )
+            ))
 
-        # time.sleep(2)
-        return signal
+        return signals

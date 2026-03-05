@@ -38,23 +38,23 @@ class PassthroughRisk(BaseRiskEngine):
 
     def __init__(self, bus: MessageBus, listener_id: str) -> None:
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
-        from src.bus.buffer_view import BufferView
         self._view = BufferView(self._listen_ch.get_buffer("AAPL"))
 
-    def evaluate(self, dirty: set[str]) -> Signal | None:
+    def evaluate(self, dirty: set[str]) -> list[Signal]:
         self.stop()
-        return self._view.latest()
+        sig = self._view.latest()
+        return [sig] if sig else []
 
 
 class VetoRisk(BaseRiskEngine):
-    """Always vetoes — returns None."""
+    """Always vetoes — returns an empty list."""
 
     def __init__(self, bus: MessageBus, listener_id: str) -> None:
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
 
-    def evaluate(self, dirty: set[str]) -> Signal | None:
+    def evaluate(self, dirty: set[str]) -> list[Signal]:
         self.stop()
-        return None
+        return []
 
 
 class DirtyCapture(BaseRiskEngine):
@@ -64,10 +64,10 @@ class DirtyCapture(BaseRiskEngine):
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
         self.captured: set[str] = set()
 
-    def evaluate(self, dirty: set[str]) -> Signal | None:
+    def evaluate(self, dirty: set[str]) -> list[Signal]:
         self.captured = set(dirty)
         self.stop()
-        return None
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +111,8 @@ class TestBaseRiskEngine:
             def __init__(self, b):
                 super().__init__(b, "risk", LISTEN_CH, PUBLISH_CH)
 
-            def evaluate(self, dirty: set[str]) -> Signal | None:
-                return None
+            def evaluate(self, dirty: set[str]) -> list[Signal]:
+                return []
 
         risk = BlockingRisk(bus)
         t = threading.Thread(target=risk.run)
@@ -143,11 +143,12 @@ class TestBaseRiskEngine:
                 super().__init__(b, "risk", LISTEN_CH, PUBLISH_CH)
                 self._view = BufferView(self._listen_ch.get_buffer("AAPL"))
 
-            def evaluate(self, dirty: set[str]) -> Signal | None:
+            def evaluate(self, dirty: set[str]) -> list[Signal]:
                 nonlocal call_count
                 call_count += 1
                 self.stop()
-                return self._view.latest()
+                sig = self._view.latest()
+                return [sig] if sig else []
 
         t = threading.Thread(target=CountingPassthrough(bus).run)
         t.start()

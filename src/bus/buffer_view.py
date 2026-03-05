@@ -32,14 +32,21 @@ class BufferView(Generic[T]):
         buffer: The RingBuffer to attach this view to.
     """
 
-    def __init__(self, buffer: RingBuffer[T]) -> None:
-        """Attach a view to a buffer, starting from the current write position.
+    def __init__(self, buffer: RingBuffer[T], from_start: bool = False) -> None:
+        """Attach a view to a buffer.
 
         Args:
             buffer: The RingBuffer to read from.
+            from_start: If True, start the read cursor at the oldest item
+                currently in the buffer so drain() sees pre-existing data.
+                If False (default), start at the current write position so
+                only items written after this view is created are visible.
         """
         self._buffer = buffer
-        self._read_idx: int = buffer.write_idx
+        if from_start:
+            self._read_idx: int = buffer.write_idx - buffer.count
+        else:
+            self._read_idx: int = buffer.write_idx
         self._gap_detected: bool = False
 
     def latest(self) -> T | None:

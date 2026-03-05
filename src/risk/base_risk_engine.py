@@ -49,15 +49,13 @@ class BaseRiskEngine(ABC):
     def run(self) -> None:
         """Event-driven loop. Sleeps until a signal arrives, then calls evaluate.
 
-        Publishes the returned Signal to the publish channel if evaluate
-        returns one.
+        Publishes all returned Signals to the publish channel.
         """
         while self._running:
             self._event.wait()
             self._event.clear()
             dirty = self._listen_ch.get_dirty(self._listener_id)
-            signal = self.evaluate(dirty)
-            if signal:
+            for signal in self.evaluate(dirty):
                 self._publish_ch.publish(signal.symbol, signal)
 
     def stop(self) -> None:
@@ -66,12 +64,12 @@ class BaseRiskEngine(ABC):
         self._event.set()
 
     @abstractmethod
-    def evaluate(self, dirty: set[str]) -> Signal | None:
+    def evaluate(self, dirty: set[str]) -> list[Signal]:
         """Evaluate incoming signals and decide whether to pass them through.
 
         Args:
             dirty: Set of symbols that have new signals since last wake.
 
         Returns:
-            A Signal to forward, or None to veto.
+            A list of approved Signals to forward. Empty list vetoes all.
         """

@@ -5,7 +5,8 @@ import threading
 from src.bus.buffer_view import BufferView
 from src.bus.message_bus import MessageBus
 from src.strategy.base_strategy import BaseStrategy
-from src.types import OrderBookEntry, Signal
+from src.strategy.random_strategy_obe import RandomStrategyOBE
+from src.types import OrderBookEntry, PriceTick, Signal
 
 LISTEN_CH = "market_data"
 PUBLISH_CH = "strategy_signals"
@@ -42,44 +43,52 @@ def make_signal(symbol: str = "AAPL") -> Signal:
     )
 
 
-class FixedSignalStrategy(BaseStrategy):
+class FixedSignalStrategy(BaseStrategy[OrderBookEntry]):
     """Returns a preset signal once then stops."""
+
+    CONSUMES = OrderBookEntry
 
     def __init__(self, bus: MessageBus, listener_id: str, signal: Signal) -> None:
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
         self._signal = signal
 
-    def on_data(self, dirty: set[str]) -> Signal | None:
+    def on_data(self, dirty: set[str]) -> list[Signal]:
         self.stop()
-        return self._signal
+        return [self._signal]
 
 
-class NullStrategy(BaseStrategy):
-    """Always returns None then stops."""
+class NullStrategy(BaseStrategy[OrderBookEntry]):
+    """Always returns an empty list then stops."""
+
+    CONSUMES = OrderBookEntry
 
     def __init__(self, bus: MessageBus, listener_id: str) -> None:
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
 
-    def on_data(self, dirty: set[str]) -> Signal | None:
+    def on_data(self, dirty: set[str]) -> list[Signal]:
         self.stop()
-        return None
+        return []
 
 
-class DirtyCapture(BaseStrategy):
+class DirtyCapture(BaseStrategy[OrderBookEntry]):
     """Captures the dirty set passed to on_data."""
+
+    CONSUMES = OrderBookEntry
 
     def __init__(self, bus: MessageBus, listener_id: str) -> None:
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
         self.captured: set[str] = set()
 
-    def on_data(self, dirty: set[str]) -> Signal | None:
+    def on_data(self, dirty: set[str]) -> list[Signal]:
         self.captured = set(dirty)
         self.stop()
-        return None
+        return []
 
 
-class CountingStrategy(BaseStrategy):
+class CountingStrategy(BaseStrategy[OrderBookEntry]):
     """Counts on_data calls; signals when each call completes."""
+
+    CONSUMES = OrderBookEntry
 
     def __init__(self, bus: MessageBus, listener_id: str, target: int) -> None:
         super().__init__(bus, listener_id, LISTEN_CH, PUBLISH_CH)
@@ -87,12 +96,12 @@ class CountingStrategy(BaseStrategy):
         self.call_count = 0
         self.processed = threading.Event()
 
-    def on_data(self, dirty: set[str]) -> Signal | None:
+    def on_data(self, dirty: set[str]) -> list[Signal]:
         self.call_count += 1
         self.processed.set()
         if self.call_count >= self._target:
             self.stop()
-        return None
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -136,8 +145,8 @@ class TestBaseStrategy:
             def __init__(self, b):
                 super().__init__(b, "strat", LISTEN_CH, PUBLISH_CH)
 
-            def on_data(self, dirty: set[str]) -> Signal | None:
-                return None
+            def on_data(self, dirty: set[str]) -> list[Signal]:
+                return []
 
         strategy = BlockingStrategy(bus)
         t = threading.Thread(target=strategy.run)
@@ -187,11 +196,11 @@ class TestBaseStrategy:
             def __init__(self, b):
                 super().__init__(b, "strat", LISTEN_CH, PUBLISH_CH)
 
-            def on_data(self, dirty: set[str]) -> Signal | None:
+            def on_data(self, dirty: set[str]) -> list[Signal]:
                 nonlocal call_count
                 call_count += 1
                 self.stop()
-                return make_signal()  # publishes to PUBLISH_CH
+                return [make_signal()]  # publishes to PUBLISH_CH
 
         t = threading.Thread(target=SignalAndCount(bus).run)
         t.start()
@@ -199,3 +208,30 @@ class TestBaseStrategy:
         t.join(timeout=1.0)
 
         assert call_count == 1
+
+
+class TestCompatibility:
+    def test_random_strategy_consumes_order_book_entry(self):
+        assert RandomStrategyOBE.CONSUMES is OrderBookEntry
+
+    def test_concrete_subclass_has_consumes(self):
+        assert FixedSignalStrategy.CONSUMES is OrderBookEntry
+
+    def test_type_mismatch_detectable(self):
+        """Simulate the orchestrator compatibility check."""
+        from src.data.binance_data_source import BinanceDataSource
+
+        class PriceTickStrategy(BaseStrategy[PriceTick]):
+            CONSUMES = PriceTick
+            def on_data(self, dirty: set[str]): return []
+
+        assert BinanceDataSource.PRODUCES != PriceTickStrategy.CONSUMES
+
+    def test_type_match_passes(self):
+        from src.data.binance_data_source import BinanceDataSource
+
+        class OrderBookStrategy(BaseStrategy[OrderBookEntry]):
+            CONSUMES = OrderBookEntry
+            def on_data(self, dirty: set[str]): return []
+
+        assert BinanceDataSource.PRODUCES == OrderBookStrategy.CONSUMES
