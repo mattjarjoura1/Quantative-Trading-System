@@ -115,3 +115,45 @@ class TestListeners:
         ch.publish("MSFT", 3)
         dirty = ch.get_dirty("strat")
         assert dirty == {"AAPL", "GOOG", "MSFT"}
+
+
+class TestAllListenersClear:
+    def test_true_when_no_listeners(self):
+        """No listeners registered — trivially clear."""
+        ch: Channel[int] = make_channel()
+        assert ch.all_listeners_clear() is True
+
+    def test_true_when_all_events_cleared(self):
+        """All listeners processed and cleared their events."""
+        ch: Channel[int] = make_channel()
+        event = ch.register_listener("strat")
+        ch.publish("AAPL", 1)
+        event.clear()
+        assert ch.all_listeners_clear() is True
+
+    def test_false_when_any_event_is_set(self):
+        """At least one listener has an unprocessed event."""
+        ch: Channel[int] = make_channel()
+        ch.register_listener("strat")
+        ch.publish("AAPL", 1)  # sets event
+        assert ch.all_listeners_clear() is False
+
+    def test_false_when_one_of_two_listeners_still_set(self):
+        """Only one listener cleared — still not all clear."""
+        ch: Channel[int] = make_channel()
+        event_a = ch.register_listener("a")
+        ch.register_listener("b")
+        ch.publish("AAPL", 1)
+        event_a.clear()  # a clears, b still set
+        assert ch.all_listeners_clear() is False
+
+    def test_true_after_all_events_cleared(self):
+        """Becomes True once every listener clears."""
+        ch: Channel[int] = make_channel()
+        event_a = ch.register_listener("a")
+        event_b = ch.register_listener("b")
+        ch.publish("AAPL", 1)
+        event_a.clear()
+        event_b.clear()
+        assert ch.all_listeners_clear() is True
+

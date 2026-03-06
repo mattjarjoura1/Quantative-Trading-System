@@ -8,7 +8,6 @@ Personal/
 readings/
 
 # Data (raw and processed)
-data/
 
 # Python cache
 __pycache__/
@@ -32,5 +31,3 @@ __pycache__/
 .idea/
 
 CLAUDE.md
-
-B2C2_src/

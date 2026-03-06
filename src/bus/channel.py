@@ -85,6 +85,19 @@ class Channel(Generic[T]):
         self._dirty[listener_id] = set()
         return old
 
+    def all_listeners_clear(self) -> bool:
+        """Return True if no listener's event is currently set.
+
+        Used by backtest data sources for flow control: the source waits
+        until all consumers have processed (events cleared) before emitting
+        the next tick. Prevents ring buffer overflow during high-speed replay.
+
+        Returns:
+            True when all listener events are cleared, or when no listeners
+            are registered.
+        """
+        return not any(e.is_set() for e in self._listeners.values())
+
     def get_buffer(self, symbol: str) -> RingBuffer[T]:
         """Return the buffer for a symbol, creating it if it doesn't exist.
 

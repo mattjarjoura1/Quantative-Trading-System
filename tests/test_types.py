@@ -420,3 +420,39 @@ class TestPriceTickHashability:
         tick = make_tick()
         d = {tick: "close"}
         assert d[tick] == "close"
+
+
+# ===========================================================================
+# fill_price method tests
+# ===========================================================================
+
+class TestOrderBookEntryFillPrice:
+    def test_buy_fills_at_best_ask(self):
+        entry = make_entry()
+        assert entry.fill_price("BUY") == VALID_ASKS[0][0]  # 101.0
+
+    def test_sell_fills_at_best_bid(self):
+        entry = make_entry()
+        assert entry.fill_price("SELL") == VALID_BIDS[0][0]  # 100.0
+
+    def test_buy_uses_first_ask_not_second(self):
+        entry = make_entry(asks=((101.0, 1.0), (102.0, 0.5)))
+        assert entry.fill_price("BUY") == 101.0
+
+    def test_sell_uses_first_bid_not_second(self):
+        entry = make_entry(bids=((100.0, 1.0), (99.0, 2.0)))
+        assert entry.fill_price("SELL") == 100.0
+
+
+class TestPriceTickFillPrice:
+    def test_buy_returns_price(self):
+        tick = make_tick(price=55.0)
+        assert tick.fill_price("BUY") == 55.0
+
+    def test_sell_returns_same_price(self):
+        tick = make_tick(price=55.0)
+        assert tick.fill_price("SELL") == 55.0
+
+    def test_side_is_ignored(self):
+        tick = make_tick(price=123.45)
+        assert tick.fill_price("BUY") == tick.fill_price("SELL")

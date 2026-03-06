@@ -5,20 +5,24 @@ import time
 from src.bus.buffer_view import BufferView
 from src.bus.message_bus import MessageBus
 from src.execution.base_execution import BaseExecution
-from src.types import TradeRecord, Signal
+from src.types import Signal, TradeRecord
 
 
 class SimulationExecution(BaseExecution):
     """Records approved signals as trade records without executing real orders.
 
-    Accepts any symbol by creating BufferViews lazily on first encounter,
-    using from_start=True to avoid missing the signal that triggered the wake.
-    Fill price defaults to signal.price (perfect fill assumption).
+    Fill price is read from the market data channel at the time of execution
+    via each contract's fill_price(side) method. Because BacktestDataSource
+    paces one tick at a time, latest() on the market buffer returns the tick
+    that triggered the signal — not a future price.
+
+    Falls back to signal.price if no market data has arrived yet for a symbol.
 
     Args:
         bus: The shared message bus.
         listener_id: Unique identifier for this listener's dirty-set slot.
         listen_channel: Channel name to listen on for approved signals.
+        market_channel: Channel name to read current market prices from.
     """
 
     def __init__(
@@ -26,34 +30,52 @@ class SimulationExecution(BaseExecution):
         bus: MessageBus,
         listener_id: str,
         listen_channel: str,
+        market_channel: str,
     ) -> None:
-        """Register as a listener and initialise the trade log.
+        """Register as a listener and initialise per-channel views.
 
         Args:
             bus: The shared message bus.
             listener_id: Unique identifier for this listener's dirty-set slot.
             listen_channel: Channel name to listen on for approved signals.
+            market_channel: Channel name to read current market prices from.
         """
         super().__init__(bus, listener_id, listen_channel)
-        self._views: dict[str, BufferView[Signal]] = {}
+        self._market_ch = bus.channel(market_channel)
+        self._signal_views: dict[str, BufferView[Signal]] = {}
+        self._market_views: dict[str, BufferView] = {}
         self.trade_log: list[TradeRecord] = []
 
     def execute(self, dirty: set[str]) -> None:
-        """Drain approved signals for each dirty symbol and record them.
+        """Drain approved signals and record each with the current market fill price.
+
+        Signal views use from_start=True and drain() to catch every signal.
+        Market views use latest() — cursor position is irrelevant since latest()
+        always reads the most recent item in the buffer.
 
         Args:
             dirty: Set of symbols that have new approved signals since last wake.
         """
         now_ms = int(time.time() * 1000)
         for symbol in dirty:
-            if symbol not in self._views:
-                self._views[symbol] = BufferView(
+            if symbol not in self._signal_views:
+                self._signal_views[symbol] = BufferView(
                     self._listen_ch.get_buffer(symbol), from_start=True
                 )
-            
-            for signal in self._views[symbol].drain():
+            if symbol not in self._market_views:
+                self._market_views[symbol] = BufferView(
+                    self._market_ch.get_buffer(symbol)
+                )
+
+            market_entry = self._market_views[symbol].latest()
+            for signal in self._signal_views[symbol].drain():
+                fill = (
+                    market_entry.fill_price(signal.side)
+                    if market_entry is not None
+                    else signal.price
+                )
                 self.trade_log.append(TradeRecord(
                     signal=signal,
-                    fill_price=signal.price, # TODO: get the last updated price in the buffer
+                    fill_price=fill,
                     filled_at_ms=now_ms,
                 ))

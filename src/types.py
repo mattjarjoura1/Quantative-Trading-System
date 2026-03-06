@@ -71,6 +71,20 @@ class OrderBookEntry:
         if ask_prices != sorted(ask_prices):
             raise ValueError("asks must be sorted ascending by price")
 
+    def fill_price(self, side: str) -> float:
+        """Return the expected fill price for a given order side.
+
+        BUY orders fill at the best ask (lowest available seller price).
+        SELL orders fill at the best bid (highest available buyer price).
+
+        Args:
+            side: "BUY" or "SELL".
+
+        Returns:
+            Best ask price for BUY, best bid price for SELL.
+        """
+        return self.asks[0][0] if side == "BUY" else self.bids[0][0]
+
 
 @dataclass(frozen=True)
 class PriceTick:
@@ -107,6 +121,20 @@ class PriceTick:
             raise ValueError("timestamp_ms must be a positive integer.")
         if self.price <= 0:
             raise ValueError("price must be positive.")
+
+    def fill_price(self, side: str) -> float:
+        """Return the observed price as the fill price.
+
+        PriceTick has only one price — side is ignored and included only
+        for interface consistency with OrderBookEntry.
+
+        Args:
+            side: Not used. Included for polymorphic compatibility.
+
+        Returns:
+            The observed price.
+        """
+        return self.price
 
 
 @dataclass(frozen=True)
