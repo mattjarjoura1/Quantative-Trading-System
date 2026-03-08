@@ -85,6 +85,41 @@ class OrderBookEntry:
         """
         return self.asks[0][0] if side == "BUY" else self.bids[0][0]
 
+    def to_dict(self) -> dict:
+        """Serialise to a JSON-compatible dict.
+
+        Tuples are converted to lists so the output is valid JSON.
+        _validate is excluded — it is a construction flag, not data.
+
+        Returns:
+            Dict with keys: symbol, timestamp_ms, bids, asks.
+        """
+        return {
+            "symbol": self.symbol,
+            "timestamp_ms": self.timestamp_ms,
+            "bids": [list(level) for level in self.bids],
+            "asks": [list(level) for level in self.asks],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OrderBookEntry":
+        """Deserialise from a dict produced by to_dict().
+
+        Restores nested list structure back to tuples. Validates by default.
+
+        Args:
+            d: Dict with keys: symbol, timestamp_ms, bids, asks.
+
+        Returns:
+            OrderBookEntry instance.
+        """
+        return cls(
+            symbol=d["symbol"],
+            timestamp_ms=d["timestamp_ms"],
+            bids=tuple(tuple(level) for level in d["bids"]),
+            asks=tuple(tuple(level) for level in d["asks"]),
+        )
+
 
 @dataclass(frozen=True)
 class PriceTick:
@@ -135,6 +170,38 @@ class PriceTick:
             The observed price.
         """
         return self.price
+
+    def to_dict(self) -> dict:
+        """Serialise to a JSON-compatible dict.
+
+        _validate is excluded — it is a construction flag, not data.
+
+        Returns:
+            Dict with keys: symbol, timestamp_ms, price.
+        """
+        return {
+            "symbol": self.symbol,
+            "timestamp_ms": self.timestamp_ms,
+            "price": self.price,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PriceTick":
+        """Deserialise from a dict produced by to_dict().
+
+        Validates by default.
+
+        Args:
+            d: Dict with keys: symbol, timestamp_ms, price.
+
+        Returns:
+            PriceTick instance.
+        """
+        return cls(
+            symbol=d["symbol"],
+            timestamp_ms=d["timestamp_ms"],
+            price=d["price"],
+        )
 
 
 @dataclass(frozen=True)

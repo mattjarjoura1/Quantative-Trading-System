@@ -1,0 +1,14 @@
+bus:
+  market_data_capacity: 4096
+
+source:
+  type: "binance"
+  params:
+    symbols: ["btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt"]
+    levels: 5
+    update_speed: 1000
+
+recording:
+  listener_id: "dumper"
+  filepath: "data/raw/btcusdt_20250307.jsonl"
+  symbols: ["btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt"]

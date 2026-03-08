@@ -1,10 +1,12 @@
 """Tests for BaseOrchestrator."""
 
+import json
 import pytest
 from unittest.mock import patch
 
 from src.data.yahoo_data_source import YahooDataSource
 from src.orchestrator.base_orchestrator import BaseOrchestrator
+from src.types import OrderBookEntry, PriceTick
 
 
 # ---------------------------------------------------------------------------
@@ -97,3 +99,74 @@ class TestBaseOrchestratorWiring:
 
     def test_execution_reads_market_data_for_fill_price(self, orch):
         assert orch._execution._market_ch is orch._bus.channel("market_data")
+
+
+# ---------------------------------------------------------------------------
+# FileReplaySource / data_cls resolution
+# ---------------------------------------------------------------------------
+
+def _replay_config(filepath: str, data_cls: str, strategy_type: str) -> dict:
+    return {
+        "bus": {
+            "market_data_capacity": 64,
+            "signal_capacity": 64,
+            "approved_capacity": 64,
+        },
+        "source": {
+            "type": "file_replay",
+            "params": {"filepath": filepath, "data_cls": data_cls},
+        },
+        "strategy": {
+            "type": strategy_type,
+            "params": {"listener_id": "strat", "symbols": ["btcusdt"]},
+        },
+        "risk": {"type": "passthrough", "params": {}},
+        "execution": {"type": "simulation", "params": {"listener_id": "exec"}},
+    }
+
+
+def _write_jsonl(filepath: str, items) -> None:
+    with open(filepath, "w") as f:
+        for item in items:
+            f.write(json.dumps(item.to_dict()) + "\n")
+
+
+class TestBaseOrchestratorDataClsResolution:
+    def test_data_cls_string_resolved_to_price_tick(self, tmp_path):
+        """'PriceTick' string in config is resolved to the PriceTick class."""
+        tick = PriceTick(symbol="btcusdt", timestamp_ms=1, price=1.0)
+        filepath = str(tmp_path / "ticks.jsonl")
+        _write_jsonl(filepath, [tick])
+
+        orch = BaseOrchestrator(_replay_config(filepath, "PriceTick", "random_pt"))
+        assert orch._source.PRODUCES is PriceTick
+
+    def test_data_cls_string_resolved_to_order_book_entry(self, tmp_path):
+        """'OrderBookEntry' string in config is resolved to the OrderBookEntry class."""
+        entry = OrderBookEntry(
+            symbol="btcusdt", timestamp_ms=1,
+            bids=((100.0, 1.0),), asks=((101.0, 1.0),),
+        )
+        filepath = str(tmp_path / "entries.jsonl")
+        _write_jsonl(filepath, [entry])
+
+        orch = BaseOrchestrator(_replay_config(filepath, "OrderBookEntry", "random_obe"))
+        assert orch._source.PRODUCES is OrderBookEntry
+
+    def test_type_mismatch_raises_for_file_replay(self, tmp_path):
+        """FileReplaySource(PriceTick) paired with random_obe raises TypeError."""
+        tick = PriceTick(symbol="btcusdt", timestamp_ms=1, price=1.0)
+        filepath = str(tmp_path / "ticks.jsonl")
+        _write_jsonl(filepath, [tick])
+
+        with pytest.raises(TypeError):
+            BaseOrchestrator(_replay_config(filepath, "PriceTick", "random_obe"))
+
+    def test_unknown_data_cls_raises_key_error(self, tmp_path):
+        """Unrecognised data_cls string raises KeyError."""
+        filepath = str(tmp_path / "ticks.jsonl")
+        (tmp_path / "ticks.jsonl").write_text("")
+
+        cfg = _replay_config(filepath, "NotAType", "random_pt")
+        with pytest.raises(KeyError):
+            BaseOrchestrator(cfg)

@@ -1,5 +1,6 @@
 """Tests for Layer 0 data contracts: OrderBookEntry, PriceTick, and Signal."""
 
+import json
 import pytest
 from dataclasses import FrozenInstanceError
 
@@ -456,3 +457,69 @@ class TestPriceTickFillPrice:
     def test_side_is_ignored(self):
         tick = make_tick(price=123.45)
         assert tick.fill_price("BUY") == tick.fill_price("SELL")
+
+
+# ===========================================================================
+# Serialisation tests
+# ===========================================================================
+
+
+class TestPriceTickSerialisation:
+    def test_to_dict_contains_expected_keys(self):
+        d = make_tick().to_dict()
+        assert set(d.keys()) == {"symbol", "timestamp_ms", "price"}
+
+    def test_to_dict_values(self):
+        tick = make_tick(symbol="AAPL", timestamp_ms=2_000_000, price=200.0)
+        d = tick.to_dict()
+        assert d["symbol"] == "AAPL"
+        assert d["timestamp_ms"] == 2_000_000
+        assert d["price"] == 200.0
+
+    def test_validate_excluded_from_dict(self):
+        assert "_validate" not in make_tick().to_dict()
+
+    def test_round_trip_json(self):
+        original = make_tick()
+        restored = PriceTick.from_dict(json.loads(json.dumps(original.to_dict())))
+        assert restored == original
+
+    def test_from_dict_validates_by_default(self):
+        d = make_tick().to_dict()
+        d["price"] = -1.0
+        with pytest.raises(ValueError, match="price"):
+            PriceTick.from_dict(d)
+
+
+class TestOrderBookEntrySerialisation:
+    def test_to_dict_contains_expected_keys(self):
+        d = make_entry().to_dict()
+        assert set(d.keys()) == {"symbol", "timestamp_ms", "bids", "asks"}
+
+    def test_validate_excluded_from_dict(self):
+        assert "_validate" not in make_entry().to_dict()
+
+    def test_bids_asks_are_lists(self):
+        d = make_entry().to_dict()
+        assert isinstance(d["bids"], list)
+        assert isinstance(d["bids"][0], list)
+        assert isinstance(d["asks"], list)
+        assert isinstance(d["asks"][0], list)
+
+    def test_round_trip_json(self):
+        original = make_entry()
+        restored = OrderBookEntry.from_dict(json.loads(json.dumps(original.to_dict())))
+        assert restored == original
+
+    def test_from_dict_restores_tuple_structure(self):
+        restored = OrderBookEntry.from_dict(make_entry().to_dict())
+        assert isinstance(restored.bids, tuple)
+        assert isinstance(restored.bids[0], tuple)
+        assert isinstance(restored.asks, tuple)
+        assert isinstance(restored.asks[0], tuple)
+
+    def test_from_dict_validates_by_default(self):
+        d = make_entry().to_dict()
+        d["symbol"] = ""
+        with pytest.raises(ValueError, match="symbol"):
+            OrderBookEntry.from_dict(d)

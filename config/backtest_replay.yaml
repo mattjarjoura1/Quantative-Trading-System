@@ -1,0 +1,26 @@
+bus:
+  market_data_capacity: 1024
+  signal_capacity: 256
+  approved_capacity: 256
+
+source:
+  type: "file_replay"
+  params:
+    filepath: "data/raw/btcusdt_20250307.jsonl"
+    data_cls: "OrderBookEntry"
+
+strategy:
+  type: "random_obe"
+  params:
+    listener_id: "random"
+    symbols: ["btcusdt"]
+
+risk:
+  type: "passthrough"
+  params:
+    listener_id: "passthrough_risk"
+
+execution:
+  type: "simulation"
+  params:
+    listener_id: "sim_exec"

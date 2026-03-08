@@ -3,7 +3,7 @@
 import threading
 
 from src.bus.message_bus import MessageBus
-from src.registry import SOURCES, STRATEGIES, RISK_ENGINES, EXECUTORS
+from src.registry import DATA_TYPES, SOURCES, STRATEGIES, RISK_ENGINES, EXECUTORS
 
 
 class BaseOrchestrator:
@@ -49,17 +49,21 @@ class BaseOrchestrator:
         risk_cls = RISK_ENGINES[config["risk"]["type"]]
         execution_cls = EXECUTORS[config["execution"]["type"]]
 
-        if source_cls.PRODUCES != strategy_cls.CONSUMES:
-            raise TypeError(
-                f"{source_cls.__name__} produces {source_cls.PRODUCES.__name__} "
-                f"but {strategy_cls.__name__} consumes {strategy_cls.CONSUMES.__name__}"
-            )
+        source_params = dict(config["source"]["params"])
+        if "data_cls" in source_params:
+            source_params["data_cls"] = DATA_TYPES[source_params["data_cls"]]
 
         self._source = source_cls(
             self._bus,
             publish_channel="market_data",
-            **config["source"]["params"],
+            **source_params,
         )
+
+        if self._source.PRODUCES != strategy_cls.CONSUMES:
+            raise TypeError(
+                f"{type(self._source).__name__} produces {self._source.PRODUCES.__name__} "
+                f"but {strategy_cls.__name__} consumes {strategy_cls.CONSUMES.__name__}"
+            )
         self._strategy = strategy_cls(
             self._bus,
             listen_channel="market_data",
