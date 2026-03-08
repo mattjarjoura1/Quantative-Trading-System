@@ -7,58 +7,41 @@ This is my first ground-up quantitative trading project. The priority has been b
 ## Architecture
 
 ```mermaid
-graph TD
-    subgraph Orchestrator
-        direction TB
+stateDiagram-v2
+    direction LR
 
-        subgraph Sources
-            BIN[BinanceDataSource\nPRODUCES: OrderBookEntry]
-            YAH[YahooDataSource\nPRODUCES: PriceTick]
-            FRS[FileReplaySource\nPRODUCES: T]
-        end
+    [*] --> DataSource
 
-        BIN --> MD
-        YAH --> MD
-        FRS --> MD
+    DataSource: BaseDataSource[T]
+    DataSource: Awaits external data
+    DataSource: Parses into typed dataclass
+    DataSource: Publishes to market_data channel
 
-        MD["Channel: market_data\n(RingBuffer per symbol)"]
+    Strategy: BaseStrategy[T]
+    Strategy: Wakes on new data via Event
+    Strategy: Reads through BufferView
+    Strategy: Computes signal
+    Strategy: Publishes to strategy_signals channel
 
-        MD --> STRAT["Strategy[T]\non_data(dirty) → list[Signal]"]
-        STRAT --> SS["Channel: strategy_signals"]
-        SS --> RISK["RiskEngine\nevaluate(dirty) → list[Signal]"]
-        RISK --> AS["Channel: approved_signals"]
-        AS --> EXEC["Execution\nexecute(dirty)"]
+    RiskEngine: BaseRiskEngine
+    RiskEngine: Wakes on new signal
+    RiskEngine: Evaluates risk constraints
+    RiskEngine: Publishes to approved_signals channel
 
-        MD -.->|fill price| EXEC
-    end
+    Execution: BaseExecution
+    Execution: Wakes on approved signal
+    Execution: Reads fill price from market_data
+    Execution: Records trade
 
-    subgraph Bus Infrastructure
-        direction LR
-        MB[MessageBus] -->|"create_channel()"| CH[Channel]
-        CH -->|per symbol| RB[RingBuffer]
-        CH -->|per listener| EV[Event + dirty set]
-        BV[BufferView] -->|"drain() / latest()"| RB
-    end
-
-    subgraph Recording Pipeline
-        SRC2[Live DataSource] --> MD2["Channel: market_data"]
-        MD2 --> DMP["MarketDataDumper\nto_dict() → JSONL"]
-        DMP --> FILE["data/raw/*.jsonl"]
-        FILE --> FRS
-    end
+    DataSource --> Strategy
+    Strategy --> RiskEngine
+    RiskEngine --> Execution
+    Execution --> [*]
 ```
 
-Each named channel is an independent publish/subscribe unit with its own ring buffers, listener pool, and dirty sets. Publishing on one channel never wakes listeners on another. Strategies and execution run on their own threads; the data source drives the pipeline from the main thread via `asyncio`.
+Each stage runs on its own thread. The message bus sits between every stage — components never reference each other directly. An orchestrator reads a YAML config, resolves component classes from a registry, validates type compatibility, wires everything to the bus, and manages the lifecycle.
 
-### Orchestrators
-
-Three orchestrators wire the pipeline for different use cases:
-
-- **BacktestOrchestrator** — runs a `BacktestDataSource` to completion with paced replay (one tick at a time, no buffer overflow). Records market history for post-run analysis. Returns `list[TradeRecord]`.
-- **LiveOrchestrator** — runs a live data source indefinitely until externally stopped.
-- **RecordingOrchestrator** — wires a live source to a `MarketDataDumper` for data collection. No strategy, risk, or execution.
-
-All component wiring is YAML-driven. Each component block has a `type` (string → class lookup via registry) and `params` (unpacked into the constructor). Adding a new component is one import and one dict entry in `src/registry.py`.
+For detailed documentation of each subsystem (bus internals, data source hierarchy, component run loops, orchestrator wiring, data recording/replay), see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Project Structure
 
@@ -112,8 +95,6 @@ The infrastructure is in place. What comes next is the strategy layer:
 - **Ornstein-Uhlenbeck Process** — Mean-reversion parameter estimation (θ, μ, σ)
 - **Bertram Optimal Thresholds** — Analytically derived entry/exit levels maximising expected return per unit time
 - **RSI** — Relative Strength Index on VWMP with incremental computation
-
-Mathematical derivations for the stat arb components are documented in `docs/math/`.
 
 ## Standards
 
