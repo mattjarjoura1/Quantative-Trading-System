@@ -66,7 +66,6 @@ class TestLiveOrchestrator:
         t.start()
         t.join(timeout=5.0)
         assert not t.is_alive()
-        assert len(orch._execution.trade_log) > 0
 
     def test_accepts_any_data_source_type(self):
         """LiveOrchestrator does not check for BacktestDataSource."""

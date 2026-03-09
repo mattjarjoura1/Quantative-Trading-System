@@ -29,7 +29,7 @@ def _config(source_type: str = "yahoo", strategy_type: str = "random_pt") -> dic
         },
         "strategy": {
             "type": strategy_type,
-            "params": {"listener_id": "strat", "symbols": ["BTC-USD"]},
+            "params": {"listener_id": "strat", "symbols": ["BTC-USD"], "random_threshold": 1.0},
         },
         "risk": {"type": "passthrough", "params": {}},
         "execution": {"type": "simulation", "params": {"listener_id": "exec"}},

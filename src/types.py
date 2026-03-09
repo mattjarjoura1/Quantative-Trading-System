@@ -85,6 +85,18 @@ class OrderBookEntry:
         """
         return self.asks[0][0] if side == "BUY" else self.bids[0][0]
 
+    def mtm_price(self) -> float:
+        """Return the mid-price for mark-to-market portfolio valuation.
+
+        Mid-price is the arithmetic mean of best bid and best ask.
+        Standard institutional convention for continuous MtM valuation —
+        avoids bid-ask bounce noise that depresses Sharpe ratios.
+
+        Returns:
+            (best_bid + best_ask) / 2
+        """
+        return (self.bids[0][0] + self.asks[0][0]) / 2
+
     def to_dict(self) -> dict:
         """Serialise to a JSON-compatible dict.
 
@@ -165,6 +177,16 @@ class PriceTick:
 
         Args:
             side: Not used. Included for polymorphic compatibility.
+
+        Returns:
+            The observed price.
+        """
+        return self.price
+
+    def mtm_price(self) -> float:
+        """Return the mark-to-market price for portfolio valuation.
+
+        PriceTick has a single price — returns it directly.
 
         Returns:
             The observed price.

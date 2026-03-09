@@ -460,6 +460,46 @@ class TestPriceTickFillPrice:
 
 
 # ===========================================================================
+# mtm_price method tests
+# ===========================================================================
+
+
+class TestOrderBookEntryMtmPrice:
+    def test_returns_mid_price(self):
+        # bid=100, ask=102 → mid=101
+        entry = make_entry(bids=((100.0, 1.0),), asks=((102.0, 1.0),))
+        assert entry.mtm_price() == 101.0
+
+    def test_asymmetric_spread(self):
+        # bid=99, ask=101 → mid=100
+        entry = make_entry(bids=((99.0, 1.0),), asks=((101.0, 1.0),))
+        assert entry.mtm_price() == 100.0
+
+    def test_uses_best_bid_and_ask_only(self):
+        # Second levels should not affect the result
+        entry = make_entry(
+            bids=((100.0, 1.0), (90.0, 2.0)),
+            asks=((102.0, 1.0), (110.0, 2.0)),
+        )
+        assert entry.mtm_price() == 101.0
+
+    def test_zero_spread(self):
+        entry = make_entry(bids=((100.0, 1.0),), asks=((100.0, 1.0),))
+        assert entry.mtm_price() == 100.0
+
+
+class TestPriceTickMtmPrice:
+    def test_returns_price(self):
+        tick = make_tick(price=150.0)
+        assert tick.mtm_price() == 150.0
+
+    def test_matches_fill_price(self):
+        tick = make_tick(price=55.75)
+        assert tick.mtm_price() == tick.fill_price("BUY")
+        assert tick.mtm_price() == tick.fill_price("SELL")
+
+
+# ===========================================================================
 # Serialisation tests
 # ===========================================================================
 

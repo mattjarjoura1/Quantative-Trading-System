@@ -8,11 +8,6 @@ from src.bus import MessageBus, BufferView
 from src.strategy import BaseStrategy
 from src.types import PriceTick, Signal
 
-# Probability of generating a signal on any given tick
-RANDOM_THRESHOLD = 0.3
-# Maximum position size in units
-MAX_TRADE = 2
-
 
 class RandomStrategyPT(BaseStrategy[PriceTick]):
     CONSUMES = PriceTick
@@ -36,6 +31,8 @@ class RandomStrategyPT(BaseStrategy[PriceTick]):
         listen_channel: str,
         publish_channel: str,
         symbols: list[str] = ["btcusdt"],
+        random_threshold: float = 0.3,
+        max_trade: float = 10_000
     ) -> None:
         """Set up buffer views for each symbol.
 
@@ -45,12 +42,20 @@ class RandomStrategyPT(BaseStrategy[PriceTick]):
             listen_channel: Channel name to listen on for market data.
             publish_channel: Channel name to publish signals to.
             symbols: Asset symbols to watch and generate signals for.
+            random_threshold: Percentage chance of a trade being made
+            max_trade: Maximum dollar amount of equity traded
         """
         super().__init__(bus, listener_id, listen_channel, publish_channel)
         self._views: dict[str, BufferView] = {
             symbol: BufferView(self._listen_ch.get_buffer(symbol))
             for symbol in symbols
         }
+        
+        if random_threshold < 0 or random_threshold > 1:
+            raise ValueError("Random threshold must be between 0 and 1")
+        
+        self._random_threshold = random_threshold
+        self._max_trade = max_trade
 
     def on_data(self, dirty: set[str]) -> list[Signal]:
         """Drain new entries for each dirty symbol and emit a random signal.
@@ -72,13 +77,19 @@ class RandomStrategyPT(BaseStrategy[PriceTick]):
 
             if not data:
                 continue
+            
+            if np.random.random() > self._random_threshold:
+                continue
 
             entry = data[-1]
+            
+            position = (self._max_trade * np.random.random()) / entry.price
+            
             signals.append(Signal(
                 timestamp_ms=entry.timestamp_ms,
                 symbol=entry.symbol,
                 side=np.random.choice(["BUY", "SELL"]),
-                quantity=MAX_TRADE * np.random.random(),
+                quantity=position,
                 price=entry.price,
                 metadata={},
             ))
