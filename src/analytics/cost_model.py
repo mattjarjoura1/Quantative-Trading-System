@@ -12,13 +12,12 @@ class BaseCostModel(ABC):
     """
 
     @abstractmethod
-    def calculate(self, symbol: str, side: str, quantity: float, fill_price: float) -> float:
+    def calculate(self, symbol: str, quantity: float, fill_price: float) -> float:
         """Return the dollar cost for this fill.
 
         Args:
             symbol: Asset identifier.
-            side: "BUY" or "SELL".
-            quantity: Unsigned trade quantity.
+            quantity: Absolute (unsigned) trade quantity.
             fill_price: Execution price (unmodified market price).
 
         Returns:
@@ -36,12 +35,11 @@ class FlatPerTrade(BaseCostModel):
     def __init__(self, cost: float = 0.0) -> None:
         self._cost = cost
 
-    def calculate(self, symbol: str, side: str, quantity: float, fill_price: float) -> float:
+    def calculate(self, symbol: str, quantity: float, fill_price: float) -> float:
         """Return the fixed cost per trade.
 
         Args:
             symbol: Unused.
-            side: Unused.
             quantity: Unused.
             fill_price: Unused.
 

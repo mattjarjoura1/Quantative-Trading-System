@@ -80,15 +80,10 @@ class RandomStrategyOBE(BaseStrategy[OrderBookEntry]):
                 continue
 
             entry = data[-1]
-            
-            position = (self._max_trade * np.random.random()) / entry.mtm_price()
-
-            entry = data[-1]
             signals.append(Signal(
                 timestamp_ms=entry.timestamp_ms,
                 symbol=entry.symbol,
-                side=np.random.choice(["BUY", "SELL"]),
-                quantity=position,
+                target_position=np.random.choice([-1.0, 1.0]),
                 price=entry.asks[0][0],
                 metadata={},
             ))

@@ -44,14 +44,16 @@ class SimulationExecution(BaseExecution):
         self._market_ch = bus.channel(market_channel)
         self._signal_views: dict[str, BufferView[Signal]] = {}
         self._market_views: dict[str, BufferView] = {}
+        self._positions: dict[str, float] = {}
         self.trade_log: list[TradeRecord] = []
 
     def execute(self, dirty: set[str]) -> None:
-        """Drain approved signals and record each with the current market fill price.
+        """Drain approved signals, compute position deltas, and record fills.
 
-        Signal views use from_start=True and drain() to catch every signal.
-        Market views use latest() — cursor position is irrelevant since latest()
-        always reads the most recent item in the buffer.
+        For each signal, computes the delta needed to reach the signal's
+        target_position from the current tracked position. Skips if delta
+        is negligible. Fill price is read from the market channel using the
+        delta's direction.
 
         Args:
             dirty: Set of symbols that have new approved signals since last wake.
@@ -69,13 +71,20 @@ class SimulationExecution(BaseExecution):
 
             market_entry = self._market_views[symbol].latest()
             for signal in self._signal_views[symbol].drain():
+                current = self._positions.get(symbol, 0.0)
+                delta = signal.target_position - current
+                if abs(delta) < 1e-12:
+                    continue
+                side = "BUY" if delta > 0 else "SELL"
                 fill = (
-                    market_entry.fill_price(signal.side)
+                    market_entry.fill_price(side)
                     if market_entry is not None
                     else signal.price
                 )
                 self.trade_log.append(TradeRecord(
                     signal=signal,
+                    delta_quantity=delta,
                     fill_price=fill,
                     filled_at_ms=now_ms,
                 ))
+                self._positions[symbol] = self._positions.get(symbol, 0.0) + delta

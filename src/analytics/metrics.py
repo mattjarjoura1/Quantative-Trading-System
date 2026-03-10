@@ -173,22 +173,20 @@ class MetricsCalculator:
     def _trade_pnls(trade_log: list[TradeRecord]) -> list[float]:
         """Compute per-trade PnL from the trade log.
 
+        PnL = (fill_price - signal.price) * delta_quantity.
+        For positive delta (buy): positive when fill > reference (market rose).
+        For negative delta (sell): positive when fill < reference (market fell).
+
         Args:
             trade_log: List of executed TradeRecord.
 
         Returns:
             List of per-trade PnL values (positive = win, negative = loss).
         """
-        pnls = []
-        for trade in trade_log:
-            qty = trade.signal.quantity
-            ref = trade.signal.price
-            fill = trade.fill_price
-            if trade.signal.side == "BUY":
-                pnls.append((fill - ref) * qty)
-            else:
-                pnls.append((ref - fill) * qty)
-        return pnls
+        return [
+            (trade.fill_price - trade.signal.price) * trade.delta_quantity
+            for trade in trade_log
+        ]
 
     @staticmethod
     def _win_rate(trade_log: list[TradeRecord]) -> float:

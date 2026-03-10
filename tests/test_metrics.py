@@ -24,16 +24,19 @@ def _curve(values: list[float], spacing_ms: int = 1_000) -> tuple[np.ndarray, np
     return eq, ts
 
 
-def _trade(side: str, qty: float, signal_price: float, fill_price: float) -> TradeRecord:
+def _trade(delta: float, signal_price: float, fill_price: float) -> TradeRecord:
+    """Build a TradeRecord. Positive delta = bought, negative = sold.
+
+    pnl = (fill_price - signal_price) * delta
+    """
     sig = Signal(
         timestamp_ms=1_000,
         symbol="SYM",
-        side=side,
-        quantity=qty,
+        target_position=delta,
         price=signal_price,
         _validate=False,
     )
-    return TradeRecord(signal=sig, fill_price=fill_price, filled_at_ms=1_000)
+    return TradeRecord(signal=sig, delta_quantity=delta, fill_price=fill_price, filled_at_ms=1_000)
 
 
 def _compute(values: list[float], spacing_ms: int = 1_000, trades=None) -> BacktestMetrics:
@@ -172,7 +175,7 @@ class TestNumTrades:
         assert m.num_trades == 0
 
     def test_counts_trades(self):
-        trades = [_trade("BUY", 1.0, 100.0, 100.0)] * 3
+        trades = [_trade(1.0, 100.0, 100.0)] * 3
         m = _compute([100.0, 100.0], trades=trades)
         assert m.num_trades == 3
 
@@ -183,30 +186,30 @@ class TestWinRate:
         assert math.isnan(m.win_rate)
 
     def test_single_win(self):
-        # BUY at 100, fill at 110 → pnl = (110 - 100) * 1 = +10
-        trades = [_trade("BUY", 1.0, 100.0, 110.0)]
+        # delta=+1, ref=100, fill=110 → pnl = (110-100)*1 = +10
+        trades = [_trade(1.0, 100.0, 110.0)]
         m = _compute([100.0, 110.0], trades=trades)
         assert m.win_rate == pytest.approx(1.0)
 
     def test_single_loss(self):
-        # BUY at 100, fill at 90 → pnl = (90 - 100) * 1 = -10
-        trades = [_trade("BUY", 1.0, 100.0, 90.0)]
+        # delta=+1, ref=100, fill=90 → pnl = (90-100)*1 = -10
+        trades = [_trade(1.0, 100.0, 90.0)]
         m = _compute([100.0, 90.0], trades=trades)
         assert m.win_rate == pytest.approx(0.0)
 
     def test_mixed_trades(self):
         # 2 wins, 1 loss
         trades = [
-            _trade("BUY", 1.0, 100.0, 110.0),
-            _trade("BUY", 1.0, 100.0, 110.0),
-            _trade("BUY", 1.0, 100.0, 90.0),
+            _trade(1.0, 100.0, 110.0),
+            _trade(1.0, 100.0, 110.0),
+            _trade(1.0, 100.0, 90.0),
         ]
         m = _compute([100.0, 110.0], trades=trades)
         assert m.win_rate == pytest.approx(2 / 3)
 
     def test_sell_win(self):
-        # SELL at 100, fill at 90 → pnl = (100 - 90) * 1 = +10
-        trades = [_trade("SELL", 1.0, 100.0, 90.0)]
+        # delta=-1, ref=100, fill=90 → pnl = (90-100)*(-1) = +10
+        trades = [_trade(-1.0, 100.0, 90.0)]
         m = _compute([100.0], trades=trades)
         assert m.win_rate == pytest.approx(1.0)
 
@@ -217,21 +220,21 @@ class TestProfitFactor:
         assert math.isnan(m.profit_factor)
 
     def test_all_wins_is_inf(self):
-        trades = [_trade("BUY", 1.0, 100.0, 110.0)]
+        trades = [_trade(1.0, 100.0, 110.0)]
         m = _compute([100.0], trades=trades)
         assert math.isinf(m.profit_factor)
 
     def test_all_losses_is_zero(self):
-        trades = [_trade("BUY", 1.0, 100.0, 90.0)]
+        trades = [_trade(1.0, 100.0, 90.0)]
         m = _compute([100.0], trades=trades)
         assert m.profit_factor == pytest.approx(0.0)
 
     def test_known_ratio(self):
         # 2 wins of 10 each, 1 loss of 5 → PF = 20 / 5 = 4.0
         trades = [
-            _trade("BUY", 1.0, 100.0, 110.0),
-            _trade("BUY", 1.0, 100.0, 110.0),
-            _trade("BUY", 1.0, 100.0, 95.0),
+            _trade(1.0, 100.0, 110.0),
+            _trade(1.0, 100.0, 110.0),
+            _trade(1.0, 100.0, 95.0),
         ]
         m = _compute([100.0], trades=trades)
         assert m.profit_factor == pytest.approx(4.0)

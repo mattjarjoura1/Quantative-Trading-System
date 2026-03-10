@@ -59,4 +59,4 @@ class FileReplaySource(BacktestDataSource[T], Generic[T]):
             return None
         line = self._lines[self._index]
         self._index += 1
-        return self._data_cls.from_dict(json.loads(line))
+        return self._data_cls.from_dict(json.loads(line), backtest=True)

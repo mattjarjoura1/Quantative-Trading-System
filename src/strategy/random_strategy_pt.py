@@ -82,14 +82,10 @@ class RandomStrategyPT(BaseStrategy[PriceTick]):
                 continue
 
             entry = data[-1]
-            
-            position = (self._max_trade * np.random.random()) / entry.price
-            
             signals.append(Signal(
                 timestamp_ms=entry.timestamp_ms,
                 symbol=entry.symbol,
-                side=np.random.choice(["BUY", "SELL"]),
-                quantity=position,
+                target_position=np.random.choice([-1.0, 1.0]),
                 price=entry.price,
                 metadata={},
             ))

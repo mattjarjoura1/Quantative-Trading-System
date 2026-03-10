@@ -18,16 +18,16 @@ def _tick(symbol: str, ts: int, price: float) -> PriceTick:
     return PriceTick(symbol=symbol, timestamp_ms=ts, price=price)
 
 
-def _trade(symbol: str, side: str, qty: float, price: float, ts: int) -> TradeRecord:
+def _trade(symbol: str, delta: float, price: float, ts: int) -> TradeRecord:
+    """Build a TradeRecord. Positive delta = bought, negative = sold."""
     sig = Signal(
         timestamp_ms=ts,
         symbol=symbol,
-        side=side,
-        quantity=qty,
+        target_position=delta,
         price=price,
         _validate=False,
     )
-    return TradeRecord(signal=sig, fill_price=price, filled_at_ms=ts)
+    return TradeRecord(signal=sig, delta_quantity=delta, fill_price=price, filled_at_ms=ts)
 
 
 def _analyser(trades=None, history=None, capital=100_000.0, cost=None) -> BacktestAnalyser:
@@ -98,7 +98,7 @@ class TestEquityCurve:
         assert len(result.equity_curve) == 5
 
     def test_equity_rises_after_buy_and_price_increase(self):
-        trade = _trade("SYM", "BUY", 1.0, 100.0, ts=1_000)
+        trade = _trade("SYM", 1.0, 100.0, ts=1_000)
         history = {
             "SYM": [
                 _tick("SYM", 1_000, 100.0),
@@ -111,7 +111,7 @@ class TestEquityCurve:
         assert e2 > e1
 
     def test_equity_falls_after_buy_and_price_decrease(self):
-        trade = _trade("SYM", "BUY", 1.0, 100.0, ts=1_000)
+        trade = _trade("SYM", 1.0, 100.0, ts=1_000)
         history = {
             "SYM": [
                 _tick("SYM", 1_000, 100.0),
@@ -132,7 +132,7 @@ class TestEquityCurve:
 class TestEventOrdering:
     def test_fill_sorts_before_tick_at_same_timestamp(self):
         """Fill at ts=1000 and tick at ts=1000: fill processed first, then MtM."""
-        trade = _trade("SYM", "BUY", 1.0, 100.0, ts=1_000)
+        trade = _trade("SYM", 1.0, 100.0, ts=1_000)
         history = {"SYM": [_tick("SYM", 1_000, 110.0)]}
         result = _analyser(trades=[trade], history=history).run()
         # After fill: cash = 99_900, position = 1 @ 100
@@ -149,14 +149,14 @@ class TestEventOrdering:
 
 class TestCostModel:
     def test_default_zero_cost(self):
-        trade = _trade("SYM", "BUY", 1.0, 100.0, ts=1_000)
+        trade = _trade("SYM", 1.0, 100.0, ts=1_000)
         history = {"SYM": [_tick("SYM", 1_000, 100.0)]}
         result = _analyser(trades=[trade], history=history).run()
         _, equity = result.equity_curve[0]
         assert equity == pytest.approx(100_000.0)
 
     def test_flat_cost_deducted(self):
-        trade = _trade("SYM", "BUY", 1.0, 100.0, ts=1_000)
+        trade = _trade("SYM", 1.0, 100.0, ts=1_000)
         history = {"SYM": [_tick("SYM", 1_000, 100.0)]}
         result = _analyser(trades=[trade], history=history, cost=FlatPerTrade(5.0)).run()
         _, equity = result.equity_curve[0]
@@ -171,8 +171,8 @@ class TestCostModel:
 class TestTrackerFinalState:
     def test_tracker_reflects_executed_trades(self):
         trades = [
-            _trade("SYM", "BUY", 10.0, 100.0, ts=1_000),
-            _trade("SYM", "SELL", 10.0, 110.0, ts=2_000),
+            _trade("SYM", 10.0, 100.0, ts=1_000),
+            _trade("SYM", -10.0, 110.0, ts=2_000),
         ]
         history = {"SYM": [_tick("SYM", 1_000, 100.0), _tick("SYM", 2_000, 110.0)]}
         result = _analyser(trades=trades, history=history).run()
@@ -180,6 +180,6 @@ class TestTrackerFinalState:
         assert "SYM" not in result.tracker.positions
 
     def test_metrics_num_trades_matches_trade_log(self):
-        trades = [_trade("SYM", "BUY", 1.0, 100.0, ts=i * 1_000) for i in range(1, 4)]
+        trades = [_trade("SYM", 1.0, 100.0, ts=i * 1_000) for i in range(1, 4)]
         result = _analyser(trades=trades).run()
         assert result.metrics.num_trades == 3

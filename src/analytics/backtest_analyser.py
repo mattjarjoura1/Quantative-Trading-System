@@ -82,14 +82,14 @@ class BacktestAnalyser:
                 events.append((tick.timestamp_ms, _TICK_PRIORITY, tick))
 
         events.sort(key=lambda e: (e[0], e[1]))
-
+    
         last_prices: dict[str, float] = {}
 
         for timestamp_ms, priority, payload in events:
             if priority == _FILL_PRIORITY:
-                tracker.on_fill(payload)  # type: ignore[arg-type]
+                tracker.on_fill(payload)
             else:
-                last_prices[payload.symbol] = payload.mtm_price()  # type: ignore[union-attr]
+                last_prices[payload.symbol] = payload.mtm_price()
                 tracker.mark_to_market(timestamp_ms, last_prices)
 
         curve = tracker.equity_curve

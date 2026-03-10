@@ -1,6 +1,7 @@
 """Shared dataclasses used as inter-component contracts throughout the pipeline."""
 
 from dataclasses import dataclass, field
+import time
 
 
 @dataclass(frozen=True)
@@ -114,20 +115,21 @@ class OrderBookEntry:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "OrderBookEntry":
+    def from_dict(cls, d: dict, backtest: bool = True) -> "OrderBookEntry":
         """Deserialise from a dict produced by to_dict().
 
         Restores nested list structure back to tuples. Validates by default.
 
         Args:
             d: Dict with keys: symbol, timestamp_ms, bids, asks.
+            backtest: Adjusts time to current time for backtesting purposes
 
         Returns:
             OrderBookEntry instance.
         """
         return cls(
             symbol=d["symbol"],
-            timestamp_ms=d["timestamp_ms"],
+            timestamp_ms=int(time.time() * 1000) if backtest else d["timestamp_ms"],
             bids=tuple(tuple(level) for level in d["bids"]),
             asks=tuple(tuple(level) for level in d["asks"]),
         )
@@ -208,7 +210,7 @@ class PriceTick:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "PriceTick":
+    def from_dict(cls, d: dict, backtest: bool = True) -> "PriceTick":
         """Deserialise from a dict produced by to_dict().
 
         Validates by default.
@@ -221,14 +223,17 @@ class PriceTick:
         """
         return cls(
             symbol=d["symbol"],
-            timestamp_ms=d["timestamp_ms"],
+            timestamp_ms=int(time.time() * 1000) if backtest else d["timestamp_ms"],
             price=d["price"],
         )
 
 
 @dataclass(frozen=True)
 class Signal:
-    """A trading signal emitted by a strategy for a single symbol.
+    """A trading signal representing a strategy's desired position for a symbol.
+
+    The strategy declares WHERE it wants to be, not HOW to get there.
+    Execution computes the required delta from the current position.
 
     Flows from strategy → risk engine → execution. The metadata field carries
     strategy-specific diagnostics for logging and analysis; downstream
@@ -237,17 +242,16 @@ class Signal:
     Attributes:
         timestamp_ms: When the signal was generated (millisecond unix timestamp).
         symbol: Which asset this signal applies to.
-        side: One of "BUY", "SELL", "HOLD".
-        quantity: Target position size (absolute, not delta). Non-negative.
-        price: Reference price at time of signal (e.g. best ask for buy).
+        target_position: Desired absolute position. Signed — positive is long,
+            negative is short, zero is flat.
+        price: Reference price at time of signal (e.g. current market price).
         metadata: Optional strategy-specific data (e.g. {"rsi": 72.3}).
         _validate: When False, skips all validation.
     """
 
     timestamp_ms: int
     symbol: str
-    side: str
-    quantity: float
+    target_position: float
     price: float
     metadata: dict = field(default_factory=dict, compare=False, hash=False)
     _validate: bool = field(default=True, compare=False, repr=False, hash=False)
@@ -265,30 +269,41 @@ class Signal:
             raise ValueError("timestamp_ms must be a positive integer")
         if not self.symbol:
             raise ValueError("symbol must be a non-empty string")
-        if self.side not in ("BUY", "SELL", "HOLD"):
-            raise ValueError("side must be one of 'BUY', 'SELL', 'HOLD'")
-        if self.quantity < 0:
-            raise ValueError("quantity must be non-negative")
         if self.price <= 0:
             raise ValueError("price must be positive")
 
 
 @dataclass(frozen=True)
 class TradeRecord:
-    """An executed trade record produced by SimulationExecution.
+    """An executed trade produced by the execution layer.
 
-    Wraps a Signal with execution metadata. Designed as an extension point:
-    future implementations can add slippage, commission, or exchange-specific
-    fields without modifying Signal.
+    Represents the actual position change made to satisfy a Signal.
+    The signal is the strategy's intent; delta_quantity is what execution
+    actually did.
 
     Attributes:
-        signal: The approved Signal that triggered the trade.
-        fill_price: Actual execution price. In simulation this equals
-            signal.price (perfect fill); live execution can set it from
-            the order book at time of fill.
+        signal: The approved Signal that triggered this trade.
+        delta_quantity: Signed quantity traded. Positive = bought, negative = sold.
+            This is the difference between the signal's target_position and
+            the position held before execution.
+        fill_price: Actual execution price from the market data.
         filled_at_ms: Millisecond timestamp when execution was processed.
     """
 
     signal: Signal
+    delta_quantity: float
     fill_price: float
     filled_at_ms: int
+
+    @property
+    def side(self) -> str:
+        """Derive the trade direction from delta_quantity.
+
+        Returns:
+            "BUY" if delta_quantity > 0, "SELL" if < 0, "HOLD" if zero.
+        """
+        if self.delta_quantity > 0:
+            return "BUY"
+        elif self.delta_quantity < 0:
+            return "SELL"
+        return "HOLD"

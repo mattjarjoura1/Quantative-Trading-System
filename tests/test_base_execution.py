@@ -24,8 +24,7 @@ def make_signal(symbol: str = "AAPL") -> Signal:
     return Signal(
         timestamp_ms=1_000_000,
         symbol=symbol,
-        side="BUY",
-        quantity=1.0,
+        target_position=1.0,
         price=101.0,
         metadata={},
     )

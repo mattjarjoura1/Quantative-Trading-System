@@ -32,8 +32,7 @@ def make_signal(**overrides) -> Signal:
     kwargs = dict(
         timestamp_ms=1_700_000_000_000,
         symbol="btcusdt",
-        side="BUY",
-        quantity=0.01,
+        target_position=0.01,
         price=101.0,
     )
     kwargs.update(overrides)
@@ -205,18 +204,20 @@ class TestSignalConstruction:
     def test_valid_construction(self):
         sig = make_signal()
         assert sig.symbol == "btcusdt"
-        assert sig.side == "BUY"
-        assert sig.quantity == 0.01
+        assert sig.target_position == 0.01
         assert sig.price == 101.0
 
-    def test_all_valid_sides(self):
-        for side in ("BUY", "SELL", "HOLD"):
-            sig = make_signal(side=side)
-            assert sig.side == side
+    def test_positive_target_position(self):
+        sig = make_signal(target_position=5.0)
+        assert sig.target_position == 5.0
 
-    def test_zero_quantity_is_valid(self):
-        sig = make_signal(quantity=0.0)
-        assert sig.quantity == 0.0
+    def test_negative_target_position_is_valid(self):
+        sig = make_signal(target_position=-5.0)
+        assert sig.target_position == -5.0
+
+    def test_zero_target_position_is_valid(self):
+        sig = make_signal(target_position=0.0)
+        assert sig.target_position == 0.0
 
     def test_default_metadata_is_empty_dict(self):
         sig = make_signal()
@@ -240,26 +241,6 @@ class TestSignalValidation:
         with pytest.raises(ValueError, match="symbol"):
             make_signal(symbol="")
 
-    def test_invalid_side_lowercase(self):
-        with pytest.raises(ValueError, match="side"):
-            make_signal(side="buy")
-
-    def test_invalid_side_with_space(self):
-        with pytest.raises(ValueError, match="side"):
-            make_signal(side="BUY ")
-
-    def test_invalid_side_empty(self):
-        with pytest.raises(ValueError, match="side"):
-            make_signal(side="")
-
-    def test_invalid_side_arbitrary(self):
-        with pytest.raises(ValueError, match="side"):
-            make_signal(side="LONG")
-
-    def test_negative_quantity(self):
-        with pytest.raises(ValueError, match="quantity"):
-            make_signal(quantity=-0.01)
-
     def test_zero_price(self):
         with pytest.raises(ValueError, match="price"):
             make_signal(price=0.0)
@@ -273,7 +254,7 @@ class TestSignalImmutability:
     def test_frozen(self):
         sig = make_signal()
         with pytest.raises(FrozenInstanceError):
-            sig.side = "SELL"  # type: ignore[misc]
+            sig.target_position = 99.0  # type: ignore[misc]
 
 
 class TestSignalValidateFlag:
@@ -281,13 +262,11 @@ class TestSignalValidateFlag:
         sig = Signal(
             timestamp_ms=-1,
             symbol="",
-            side="INVALID",
-            quantity=-999.0,
+            target_position=-999.0,
             price=-1.0,
             _validate=False,
         )
-        assert sig.side == "INVALID"
-        assert sig.quantity == -999.0
+        assert sig.target_position == -999.0
 
 
 class TestSignalHashability:
@@ -327,8 +306,7 @@ class TestSignalMetadataEquality:
         s2 = Signal(
             timestamp_ms=s1.timestamp_ms,
             symbol=s1.symbol,
-            side=s1.side,
-            quantity=s1.quantity,
+            target_position=s1.target_position,
             price=s1.price,
             _validate=False,
         )
@@ -521,7 +499,7 @@ class TestPriceTickSerialisation:
 
     def test_round_trip_json(self):
         original = make_tick()
-        restored = PriceTick.from_dict(json.loads(json.dumps(original.to_dict())))
+        restored = PriceTick.from_dict(json.loads(json.dumps(original.to_dict())), backtest=False)
         assert restored == original
 
     def test_from_dict_validates_by_default(self):
@@ -548,7 +526,7 @@ class TestOrderBookEntrySerialisation:
 
     def test_round_trip_json(self):
         original = make_entry()
-        restored = OrderBookEntry.from_dict(json.loads(json.dumps(original.to_dict())))
+        restored = OrderBookEntry.from_dict(json.loads(json.dumps(original.to_dict())), backtest=False)
         assert restored == original
 
     def test_from_dict_restores_tuple_structure(self):

@@ -40,31 +40,28 @@ class PortfolioTracker:
             trade: The executed TradeRecord from the pipeline.
         """
         symbol = trade.signal.symbol
-        side = trade.signal.side
-        quantity = trade.signal.quantity
+        delta = trade.delta_quantity
         fill_price = trade.fill_price
 
-        signed_qty = quantity if side == "BUY" else -quantity
         old_qty, old_avg = self.positions.get(symbol, (0.0, 0.0))
-        new_qty = old_qty + signed_qty
+        new_qty = old_qty + delta
 
         if old_qty == 0.0:
             # Case 1: Fresh open
             new_avg = fill_price
-        elif (old_qty > 0) == (signed_qty > 0):
+        elif (old_qty > 0) == (delta > 0):
             # Case 2: Adding to existing position (same direction)
-            new_avg = (old_qty * old_avg + signed_qty * fill_price) / new_qty
+            new_avg = (old_qty * old_avg + delta * fill_price) / new_qty
         elif abs(new_qty) < 1e-12:
             # Case 3a: Full close
             self.realised_pnl += abs(old_qty) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
             self.positions.pop(symbol, None)
-            self.cash -= signed_qty * fill_price
-            self.cash -= self._cost_model.calculate(symbol, side, quantity, fill_price)
+            self.cash -= delta * fill_price
+            self.cash -= self._cost_model.calculate(symbol, abs(delta), fill_price)
             return
         elif (new_qty > 0) == (old_qty > 0):
             # Case 3b: Partial close (same sign, smaller magnitude)
-            closed = abs(signed_qty)
-            self.realised_pnl += closed * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            self.realised_pnl += abs(delta) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
             new_avg = old_avg
         else:
             # Case 3c: Reversal — cross zero
@@ -76,8 +73,8 @@ class PortfolioTracker:
         else:
             self.positions[symbol] = (new_qty, new_avg)
 
-        self.cash -= signed_qty * fill_price
-        self.cash -= self._cost_model.calculate(symbol, side, quantity, fill_price)
+        self.cash -= delta * fill_price
+        self.cash -= self._cost_model.calculate(symbol, abs(delta), fill_price)
 
     def mark_to_market(self, timestamp_ms: int, prices: dict[str, float]) -> None:
         """Compute and record portfolio equity at a point in time.
@@ -93,4 +90,5 @@ class PortfolioTracker:
             for sym, (qty, _) in self.positions.items()
             if sym in prices
         )
+                
         self.equity_curve.append((timestamp_ms, self.cash + unrealised))
