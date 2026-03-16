@@ -10,5 +10,5 @@ source:
 
 recording:
   listener_id: "dumper"
-  filepath: "data/raw/btcusdt_20250309.jsonl"
+  filepath: "data/raw/btcusdt_20250317.jsonl"
   symbols: ["btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt"]

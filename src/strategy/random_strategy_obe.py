@@ -78,12 +78,15 @@ class RandomStrategyOBE(BaseStrategy[OrderBookEntry]):
             
             if np.random.random() > self._random_threshold:
                 continue
-
+            
             entry = data[-1]
+            
+            target = np.random.choice([-1.0, 1.0]) * self._max_trade / entry.asks[0][0]
+
             signals.append(Signal(
                 timestamp_ms=entry.timestamp_ms,
                 symbol=entry.symbol,
-                target_position=np.random.choice([-1.0, 1.0]),
+                target_position=target,
                 price=entry.asks[0][0],
                 metadata={},
             ))

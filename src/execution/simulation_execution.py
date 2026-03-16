@@ -58,7 +58,7 @@ class SimulationExecution(BaseExecution):
         Args:
             dirty: Set of symbols that have new approved signals since last wake.
         """
-        now_ms = int(time.time() * 1000)
+        
         for symbol in dirty:
             if symbol not in self._signal_views:
                 self._signal_views[symbol] = BufferView(
@@ -70,9 +70,11 @@ class SimulationExecution(BaseExecution):
                 )
 
             market_entry = self._market_views[symbol].latest()
+            
             for signal in self._signal_views[symbol].drain():
                 current = self._positions.get(symbol, 0.0)
                 delta = signal.target_position - current
+                
                 if abs(delta) < 1e-12:
                     continue
                 side = "BUY" if delta > 0 else "SELL"
@@ -81,10 +83,11 @@ class SimulationExecution(BaseExecution):
                     if market_entry is not None
                     else signal.price
                 )
+                filled_at = market_entry.timestamp_ms if market_entry is not None else signal.timestamp_ms
                 self.trade_log.append(TradeRecord(
                     signal=signal,
                     delta_quantity=delta,
                     fill_price=fill,
-                    filled_at_ms=now_ms,
+                    filled_at_ms=filled_at,
                 ))
                 self._positions[symbol] = self._positions.get(symbol, 0.0) + delta

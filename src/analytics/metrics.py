@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.types import TradeRecord
-
 _MS_PER_YEAR = 365.25 * 24 * 3600 * 1000
 
 
@@ -49,18 +47,22 @@ class MetricsCalculator:
     def compute(
         equity: np.ndarray,
         timestamps: np.ndarray,
-        trade_log: list[TradeRecord],
+        num_trades: int = 0,
+        trade_pnls: list[float] | None = None,
     ) -> BacktestMetrics:
         """Compute all metrics and return as BacktestMetrics.
 
         Args:
             equity: 1D array of portfolio equity values (from tracker.equity_curve).
             timestamps: 1D array of millisecond timestamps (same length as equity).
-            trade_log: List of TradeRecord for trade-level metrics.
+            num_trades: Total number of executions in the trade log.
+            trade_pnls: Realised PnL per position-close from PortfolioTracker.trade_pnls.
 
         Returns:
             BacktestMetrics with all fields populated.
         """
+        pnls = trade_pnls or []
+
         if len(equity) == 0:
             return BacktestMetrics(
                 total_pnl=0.0,
@@ -69,9 +71,9 @@ class MetricsCalculator:
                 annualised_sharpe=float("nan"),
                 max_drawdown_pct=0.0,
                 max_drawdown_duration_ms=0,
-                num_trades=len(trade_log),
-                win_rate=MetricsCalculator._win_rate(trade_log),
-                profit_factor=MetricsCalculator._profit_factor(trade_log),
+                num_trades=num_trades,
+                win_rate=MetricsCalculator._win_rate(pnls),
+                profit_factor=MetricsCalculator._profit_factor(pnls),
             )
 
         total_pnl = float(equity[-1] - equity[0])
@@ -87,9 +89,9 @@ class MetricsCalculator:
             annualised_sharpe=sharpe,
             max_drawdown_pct=max_dd,
             max_drawdown_duration_ms=max_dd_dur,
-            num_trades=len(trade_log),
-            win_rate=MetricsCalculator._win_rate(trade_log),
-            profit_factor=MetricsCalculator._profit_factor(trade_log),
+            num_trades=num_trades,
+            win_rate=MetricsCalculator._win_rate(pnls),
+            profit_factor=MetricsCalculator._profit_factor(pnls),
         )
 
     @staticmethod
@@ -107,6 +109,8 @@ class MetricsCalculator:
         if duration_ms <= 0:
             return 0.0
         years = duration_ms / _MS_PER_YEAR
+        if years < 1.0 / 365.25:  # less than one day — CAGR is meaningless
+            return 0.0
         return float((equity[-1] / equity[0]) ** (1.0 / years) - 1.0)
 
     @staticmethod
@@ -121,7 +125,7 @@ class MetricsCalculator:
             Annualised Sharpe ratio. NaN when std of returns is zero or
             fewer than 2 data points.
         """
-        if len(equity) < 2:
+        if len(equity) < 3:  # need at least 2 returns for ddof=1
             return float("nan")
         returns = np.diff(equity) / equity[:-1]
         std = float(np.std(returns, ddof=1))
@@ -170,55 +174,34 @@ class MetricsCalculator:
         return max_dd, max_dur
 
     @staticmethod
-    def _trade_pnls(trade_log: list[TradeRecord]) -> list[float]:
-        """Compute per-trade PnL from the trade log.
-
-        PnL = (fill_price - signal.price) * delta_quantity.
-        For positive delta (buy): positive when fill > reference (market rose).
-        For negative delta (sell): positive when fill < reference (market fell).
+    def _win_rate(trade_pnls: list[float]) -> float:
+        """Compute fraction of position-closes with positive realised PnL.
 
         Args:
-            trade_log: List of executed TradeRecord.
+            trade_pnls: Realised PnL per position-close (from PortfolioTracker).
 
         Returns:
-            List of per-trade PnL values (positive = win, negative = loss).
+            Win rate in [0, 1]. NaN when no closed positions.
         """
-        return [
-            (trade.fill_price - trade.signal.price) * trade.delta_quantity
-            for trade in trade_log
-        ]
-
-    @staticmethod
-    def _win_rate(trade_log: list[TradeRecord]) -> float:
-        """Compute fraction of trades with positive PnL.
-
-        Args:
-            trade_log: List of executed TradeRecord.
-
-        Returns:
-            Win rate in [0, 1]. NaN when no trades.
-        """
-        if not trade_log:
+        if not trade_pnls:
             return float("nan")
-        pnls = MetricsCalculator._trade_pnls(trade_log)
-        return sum(1 for p in pnls if p > 0) / len(pnls)
+        return sum(1 for p in trade_pnls if p > 0) / len(trade_pnls)
 
     @staticmethod
-    def _profit_factor(trade_log: list[TradeRecord]) -> float:
-        """Compute gross profit divided by gross loss.
+    def _profit_factor(trade_pnls: list[float]) -> float:
+        """Compute gross profit divided by gross loss across all position-closes.
 
         Args:
-            trade_log: List of executed TradeRecord.
+            trade_pnls: Realised PnL per position-close (from PortfolioTracker).
 
         Returns:
-            Profit factor. Inf when no losing trades. NaN when no trades.
+            Profit factor. Inf when no losing trades. NaN when no closed positions.
             0.0 when no winning trades.
         """
-        if not trade_log:
+        if not trade_pnls:
             return float("nan")
-        pnls = MetricsCalculator._trade_pnls(trade_log)
-        gross_profit = sum(p for p in pnls if p > 0)
-        gross_loss = abs(sum(p for p in pnls if p < 0))
+        gross_profit = sum(p for p in trade_pnls if p > 0)
+        gross_loss = abs(sum(p for p in trade_pnls if p < 0))
         if gross_loss < 1e-12:
             return float("inf") if gross_profit > 0 else float("nan")
         return gross_profit / gross_loss

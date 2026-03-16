@@ -115,21 +115,20 @@ class OrderBookEntry:
         }
 
     @classmethod
-    def from_dict(cls, d: dict, backtest: bool = True) -> "OrderBookEntry":
+    def from_dict(cls, d: dict) -> "OrderBookEntry":
         """Deserialise from a dict produced by to_dict().
 
         Restores nested list structure back to tuples. Validates by default.
 
         Args:
             d: Dict with keys: symbol, timestamp_ms, bids, asks.
-            backtest: Adjusts time to current time for backtesting purposes
 
         Returns:
             OrderBookEntry instance.
         """
         return cls(
             symbol=d["symbol"],
-            timestamp_ms=int(time.time() * 1000) if backtest else d["timestamp_ms"],
+            timestamp_ms=d["timestamp_ms"],
             bids=tuple(tuple(level) for level in d["bids"]),
             asks=tuple(tuple(level) for level in d["asks"]),
         )
@@ -210,7 +209,7 @@ class PriceTick:
         }
 
     @classmethod
-    def from_dict(cls, d: dict, backtest: bool = True) -> "PriceTick":
+    def from_dict(cls, d: dict) -> "PriceTick":
         """Deserialise from a dict produced by to_dict().
 
         Validates by default.
@@ -223,7 +222,7 @@ class PriceTick:
         """
         return cls(
             symbol=d["symbol"],
-            timestamp_ms=int(time.time() * 1000) if backtest else d["timestamp_ms"],
+            timestamp_ms=d["timestamp_ms"],
             price=d["price"],
         )
 

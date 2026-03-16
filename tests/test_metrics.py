@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from src.analytics.metrics import BacktestMetrics, MetricsCalculator
-from src.types import Signal, TradeRecord
 
 _MS_PER_YEAR = 365.25 * 24 * 3600 * 1000
 
@@ -24,24 +23,14 @@ def _curve(values: list[float], spacing_ms: int = 1_000) -> tuple[np.ndarray, np
     return eq, ts
 
 
-def _trade(delta: float, signal_price: float, fill_price: float) -> TradeRecord:
-    """Build a TradeRecord. Positive delta = bought, negative = sold.
-
-    pnl = (fill_price - signal_price) * delta
-    """
-    sig = Signal(
-        timestamp_ms=1_000,
-        symbol="SYM",
-        target_position=delta,
-        price=signal_price,
-        _validate=False,
-    )
-    return TradeRecord(signal=sig, delta_quantity=delta, fill_price=fill_price, filled_at_ms=1_000)
-
-
-def _compute(values: list[float], spacing_ms: int = 1_000, trades=None) -> BacktestMetrics:
+def _compute(
+    values: list[float],
+    spacing_ms: int = 1_000,
+    num_trades: int = 0,
+    trade_pnls: list[float] | None = None,
+) -> BacktestMetrics:
     eq, ts = _curve(values, spacing_ms)
-    return MetricsCalculator.compute(eq, ts, trades or [])
+    return MetricsCalculator.compute(eq, ts, num_trades=num_trades, trade_pnls=trade_pnls or [])
 
 
 # ===========================================================================
@@ -75,20 +64,20 @@ class TestCAGR:
     def test_zero_duration_returns_zero(self):
         eq = np.array([100.0, 110.0])
         ts = np.array([1000.0, 1000.0])  # same timestamp
-        m = MetricsCalculator.compute(eq, ts, [])
+        m = MetricsCalculator.compute(eq, ts)
         assert m.cagr == 0.0
 
     def test_one_year_doubling(self):
         eq = np.array([100.0, 200.0])
         ts = np.array([0.0, _MS_PER_YEAR])
-        m = MetricsCalculator.compute(eq, ts, [])
+        m = MetricsCalculator.compute(eq, ts)
         assert m.cagr == pytest.approx(1.0)  # 100% return in 1 year
 
     def test_sub_year_computes(self):
         # Should not raise, just produce a value
         eq = np.array([100.0, 105.0])
         ts = np.array([0.0, _MS_PER_YEAR / 2])
-        m = MetricsCalculator.compute(eq, ts, [])
+        m = MetricsCalculator.compute(eq, ts)
         # CAGR > return because compounding < 1 year
         assert m.cagr > 0.0
 
@@ -110,7 +99,7 @@ class TestSharpe:
     def test_single_point_is_nan(self):
         eq = np.array([100.0])
         ts = np.array([0.0])
-        m = MetricsCalculator.compute(eq, ts, [])
+        m = MetricsCalculator.compute(eq, ts)
         assert math.isnan(m.annualised_sharpe)
 
 
@@ -171,72 +160,53 @@ class TestMaxDrawdownDuration:
 
 class TestNumTrades:
     def test_no_trades(self):
-        m = _compute([100.0, 100.0], trades=[])
+        m = _compute([100.0, 100.0], num_trades=0)
         assert m.num_trades == 0
 
     def test_counts_trades(self):
-        trades = [_trade(1.0, 100.0, 100.0)] * 3
-        m = _compute([100.0, 100.0], trades=trades)
+        m = _compute([100.0, 100.0], num_trades=3)
         assert m.num_trades == 3
 
 
 class TestWinRate:
     def test_no_trades_is_nan(self):
-        m = _compute([100.0], trades=[])
+        m = _compute([100.0])
         assert math.isnan(m.win_rate)
 
     def test_single_win(self):
-        # delta=+1, ref=100, fill=110 → pnl = (110-100)*1 = +10
-        trades = [_trade(1.0, 100.0, 110.0)]
-        m = _compute([100.0, 110.0], trades=trades)
+        m = _compute([100.0, 110.0], trade_pnls=[10.0])
         assert m.win_rate == pytest.approx(1.0)
 
     def test_single_loss(self):
-        # delta=+1, ref=100, fill=90 → pnl = (90-100)*1 = -10
-        trades = [_trade(1.0, 100.0, 90.0)]
-        m = _compute([100.0, 90.0], trades=trades)
+        m = _compute([100.0, 90.0], trade_pnls=[-10.0])
         assert m.win_rate == pytest.approx(0.0)
 
     def test_mixed_trades(self):
         # 2 wins, 1 loss
-        trades = [
-            _trade(1.0, 100.0, 110.0),
-            _trade(1.0, 100.0, 110.0),
-            _trade(1.0, 100.0, 90.0),
-        ]
-        m = _compute([100.0, 110.0], trades=trades)
+        m = _compute([100.0, 110.0], trade_pnls=[10.0, 10.0, -10.0])
         assert m.win_rate == pytest.approx(2 / 3)
 
     def test_sell_win(self):
-        # delta=-1, ref=100, fill=90 → pnl = (90-100)*(-1) = +10
-        trades = [_trade(-1.0, 100.0, 90.0)]
-        m = _compute([100.0], trades=trades)
+        m = _compute([100.0], trade_pnls=[10.0])
         assert m.win_rate == pytest.approx(1.0)
 
 
 class TestProfitFactor:
     def test_no_trades_is_nan(self):
-        m = _compute([100.0], trades=[])
+        m = _compute([100.0])
         assert math.isnan(m.profit_factor)
 
     def test_all_wins_is_inf(self):
-        trades = [_trade(1.0, 100.0, 110.0)]
-        m = _compute([100.0], trades=trades)
+        m = _compute([100.0], trade_pnls=[10.0])
         assert math.isinf(m.profit_factor)
 
     def test_all_losses_is_zero(self):
-        trades = [_trade(1.0, 100.0, 90.0)]
-        m = _compute([100.0], trades=trades)
+        m = _compute([100.0], trade_pnls=[-10.0])
         assert m.profit_factor == pytest.approx(0.0)
 
     def test_known_ratio(self):
         # 2 wins of 10 each, 1 loss of 5 → PF = 20 / 5 = 4.0
-        trades = [
-            _trade(1.0, 100.0, 110.0),
-            _trade(1.0, 100.0, 110.0),
-            _trade(1.0, 100.0, 95.0),
-        ]
-        m = _compute([100.0], trades=trades)
+        m = _compute([100.0], trade_pnls=[10.0, 10.0, -5.0])
         assert m.profit_factor == pytest.approx(4.0)
 
 
@@ -247,7 +217,7 @@ class TestProfitFactor:
 
 class TestEmptyCurve:
     def test_empty_curve_zero_pnl(self):
-        m = MetricsCalculator.compute(np.array([]), np.array([]), [])
+        m = MetricsCalculator.compute(np.array([]), np.array([]))
         assert m.total_pnl == 0.0
         assert m.total_return_pct == 0.0
         assert m.cagr == 0.0

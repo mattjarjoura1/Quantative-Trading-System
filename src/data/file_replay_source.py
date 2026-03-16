@@ -32,7 +32,7 @@ class FileReplaySource(BacktestDataSource[T], Generic[T]):
         bus: MessageBus,
         publish_channel: str,
         filepath: str,
-        data_cls: type[T],
+        data_cls: type[T]
     ) -> None:
         """Load all lines upfront and set PRODUCES to data_cls.
 
@@ -41,11 +41,13 @@ class FileReplaySource(BacktestDataSource[T], Generic[T]):
             publish_channel: Channel name to publish to.
             filepath: Path to the JSONL file to replay.
             data_cls: The dataclass type to deserialise each line into.
+            backtest: Where this data sourcing is being used for backtesting purposes
         """
         super().__init__(bus, publish_channel)
         self.PRODUCES = data_cls
         self._data_cls = data_cls
-        self._lines = open(filepath).readlines()
+        with open(filepath) as f:
+            self._lines = f.readlines()
         self._index = 0
 
     async def fetch(self) -> T | None:
@@ -59,4 +61,4 @@ class FileReplaySource(BacktestDataSource[T], Generic[T]):
             return None
         line = self._lines[self._index]
         self._index += 1
-        return self._data_cls.from_dict(json.loads(line), backtest=True)
+        return self._data_cls.from_dict(json.loads(line))

@@ -499,7 +499,7 @@ class TestPriceTickSerialisation:
 
     def test_round_trip_json(self):
         original = make_tick()
-        restored = PriceTick.from_dict(json.loads(json.dumps(original.to_dict())), backtest=False)
+        restored = PriceTick.from_dict(json.loads(json.dumps(original.to_dict())))
         assert restored == original
 
     def test_from_dict_validates_by_default(self):
@@ -526,7 +526,7 @@ class TestOrderBookEntrySerialisation:
 
     def test_round_trip_json(self):
         original = make_entry()
-        restored = OrderBookEntry.from_dict(json.loads(json.dumps(original.to_dict())), backtest=False)
+        restored = OrderBookEntry.from_dict(json.loads(json.dumps(original.to_dict())))
         assert restored == original
 
     def test_from_dict_restores_tuple_structure(self):

@@ -100,7 +100,12 @@ class BacktestAnalyser:
             timestamps = np.array([], dtype=np.float64)
             equity = np.array([], dtype=np.float64)
 
-        metrics = MetricsCalculator.compute(equity, timestamps, self._trade_log)
+        metrics = MetricsCalculator.compute(
+            equity,
+            timestamps,
+            num_trades=len(self._trade_log),
+            trade_pnls=tracker.trade_pnls,
+        )
 
         return BacktestResult(
             equity_curve=curve,

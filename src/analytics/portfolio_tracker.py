@@ -22,6 +22,7 @@ class PortfolioTracker:
         self.positions: dict[str, tuple[float, float]] = {}   # {symbol: (qty, avg_price)}
         self.equity_curve: list[tuple[int, float]] = []        # [(timestamp_ms, equity)]
         self.realised_pnl: float = 0.0
+        self.trade_pnls: list[float] = []
         self._cost_model = cost_model
 
     def on_fill(self, trade: TradeRecord) -> None:
@@ -54,18 +55,24 @@ class PortfolioTracker:
             new_avg = (old_qty * old_avg + delta * fill_price) / new_qty
         elif abs(new_qty) < 1e-12:
             # Case 3a: Full close
-            self.realised_pnl += abs(old_qty) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            pnl = abs(old_qty) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            self.realised_pnl += pnl
+            self.trade_pnls.append(pnl)
             self.positions.pop(symbol, None)
             self.cash -= delta * fill_price
             self.cash -= self._cost_model.calculate(symbol, abs(delta), fill_price)
             return
         elif (new_qty > 0) == (old_qty > 0):
             # Case 3b: Partial close (same sign, smaller magnitude)
-            self.realised_pnl += abs(delta) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            pnl = abs(delta) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            self.realised_pnl += pnl
+            self.trade_pnls.append(pnl)
             new_avg = old_avg
         else:
             # Case 3c: Reversal — cross zero
-            self.realised_pnl += abs(old_qty) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            pnl = abs(old_qty) * (fill_price - old_avg) * (1 if old_qty > 0 else -1)
+            self.realised_pnl += pnl
+            self.trade_pnls.append(pnl)
             new_avg = fill_price
 
         if abs(new_qty) < 1e-12:
