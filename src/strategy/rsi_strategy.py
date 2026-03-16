@@ -1,5 +1,3 @@
-import numpy as np
-
 from collections import deque, defaultdict
 
 from src.strategy import BaseStrategy
@@ -72,7 +70,7 @@ class RSIStrategy(BaseStrategy):
             
             # There is too much data to consume therefore we will only consume the 
             # part which will actually be relevant to the signal
-            if len(data > self.rsi_period):
+            if len(data) > self.rsi_period:
                 data = data[-self.rsi_period : ]
                 
             for entry in data:
@@ -84,23 +82,39 @@ class RSIStrategy(BaseStrategy):
             
             position = "HOLD"
             
-            if self._prev_rsi[symbol] > self.overbought:
+            if self._prev_rsi[symbol] is None:
+                continue
+            elif self._prev_rsi[symbol] > self.overbought:
                 position = "SELL"
             elif self._prev_rsi[symbol] < self.oversold:
                 position = "BUY"
                 
-            return self._generate_signal(data[-1], position)
+            signals.append(self._generate_signal(data[-1], position))
+            
+            
+            
+        return signals
             
             
     
     def _generate_signal(self, snapshot: OrderBookEntry, position: str) -> Signal:
         
+        if position == "HOLD":
+            target_position = 0.0
+            price = snapshot.mtm_price()
+        elif position == "BUY":
+            target_position = 1.0
+            price = snapshot.mtm_price()
+        elif position == "SELL":
+            target_position = -1.0
+            price = snapshot.mtm_price()
+            
+        
         return Signal(
-            timestamp= snapshot.timestamp_ms,
+            timestamp_ms= snapshot.timestamp_ms,
             symbol=snapshot.symbol,
-            best_ask=snapshot.asks[0,0],  # Assuming we want to hold at the best bid and ask price
-            best_bid=snapshot.bids[0,0],
-            position=position
+            target_position=target_position,
+            price=price
         )
                   
     
@@ -128,12 +142,11 @@ class RSIStrategy(BaseStrategy):
         Returns:
             Volume-weighted mid price.
         """
-        vwbid = np.dot(snapshot.bids[:,0], snapshot.bids[:,1]) / snapshot.bids[:,1].sum()
-        vwask = np.dot(snapshot.asks[:,0], snapshot.asks[:,1]) / snapshot.asks[:,1].sum()
-        
-        vwap = (vwbid + vwask) / 2
-        
-        return vwap
+        bid_vol = sum(qty for _, qty in snapshot.bids)
+        ask_vol = sum(qty for _, qty in snapshot.asks)
+        vwbid = sum(p * q for p, q in snapshot.bids) / bid_vol
+        vwask = sum(p * q for p, q in snapshot.asks) / ask_vol
+        return (vwbid + vwask) / 2
     
     
     def _calculate_RSI(self, symbol: str, current_price: float) -> float | None:

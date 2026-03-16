@@ -10,12 +10,14 @@ source:
     data_cls: "OrderBookEntry"
 
 strategy:
-  type: "random_obe"
+  type: "rsi"
   params:
-    listener_id: "random"
+    listener_id: "rsi_strategy"
     symbols: ["btcusdt"]
-    random_threshold: 0.05
-    max_trade: 1000
+    rsi_period: 14
+    overbought: 90.0
+    oversold: 10.0
+    vwmp: true
 
 risk:
   type: "passthrough"
