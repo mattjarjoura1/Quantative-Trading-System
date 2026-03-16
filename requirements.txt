@@ -8,3 +8,4 @@ nest_asyncio
 matplotlib 
 orjson
 pytest-asyncio
+numba

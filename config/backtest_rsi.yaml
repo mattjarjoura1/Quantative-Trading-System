@@ -13,7 +13,7 @@ strategy:
   type: "rsi"
   params:
     listener_id: "rsi_strategy"
-    symbols: ["btcusdt"]
+    symbols: ["btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt"]
     rsi_period: 14
     overbought: 90.0
     oversold: 10.0
