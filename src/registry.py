@@ -10,6 +10,7 @@ from src.data.yahoo_data_source import YahooDataSource
 from src.strategy.random_strategy_obe import RandomStrategyOBE
 from src.strategy.random_strategy_pt import RandomStrategyPT
 from src.strategy.rsi_strategy import RSIStrategy
+from src.strategy.rsi_strategy_numba import RSIStrategyNumba
 from src.risk.passthrough_risk import PassthroughRisk
 from src.execution.simulation_execution import SimulationExecution
 from src.types import OrderBookEntry, PriceTick
@@ -29,6 +30,7 @@ STRATEGIES: dict[str, type] = {
     "random_obe": RandomStrategyOBE,
     "random_pt": RandomStrategyPT,
     "rsi": RSIStrategy,
+    "rsi_numba": RSIStrategyNumba,
 }
 
 RISK_ENGINES: dict[str, type] = {

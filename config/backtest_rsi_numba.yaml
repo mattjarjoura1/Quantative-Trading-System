@@ -1,0 +1,31 @@
+bus:
+  market_data_capacity: 1024
+  signal_capacity: 256
+  approved_capacity: 256
+
+source:
+  type: "file_replay"
+  params:
+    filepath: "data/raw/btcusdt_20250316.jsonl"
+    data_cls: "OrderBookEntry"
+
+strategy:
+  type: "rsi_numba"
+  params:
+    listener_id: "rsi_strategy_numba"
+    symbols: ["btcusdt", "ethusdt", "bnbusdt", "solusdt", "xrpusdt"]
+    rsi_period: 14
+    overbought: 90.0
+    oversold: 10.0
+    levels: 5
+    vwmp: true
+
+risk:
+  type: "passthrough"
+  params:
+    listener_id: "passthrough_risk"
+
+execution:
+  type: "simulation"
+  params:
+    listener_id: "sim_exec"
