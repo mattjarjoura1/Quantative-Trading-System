@@ -20,12 +20,12 @@ __pycache__/
 # OS files
 .DS_Store
 
-# LaTeX build artifacts
-*.aux
-*.log
-*.out
-*.synctex.gz
-*.pdf
+# LaTeX source (keep PDFs, ignore build files and source)
+docs/strategies/*.tex
+docs/strategies/*.aux
+docs/strategies/*.log
+docs/strategies/*.out
+docs/strategies/*.synctex.gz
 
 # IDE
 .vscode/
