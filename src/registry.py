@@ -7,6 +7,7 @@ No orchestrator changes required.
 from src.data.binance_data_source import BinanceDataSource
 from src.data.file_replay_source import FileReplaySource
 from src.data.yahoo_data_source import YahooDataSource
+from src.strategy.kalman_ou_bertram_strategy import KalmanOUBertramStrategy
 from src.strategy.random_strategy_obe import RandomStrategyOBE
 from src.strategy.random_strategy_pt import RandomStrategyPT
 from src.strategy.rsi_strategy import RSIStrategy
@@ -27,6 +28,7 @@ DATA_TYPES: dict[str, type] = {
 }
 
 STRATEGIES: dict[str, type] = {
+    "kalman_ou_bertram": KalmanOUBertramStrategy,
     "random_obe": RandomStrategyOBE,
     "random_pt": RandomStrategyPT,
     "rsi": RSIStrategy,

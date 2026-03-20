@@ -6,7 +6,7 @@ bus:
 source:
   type: "file_replay"
   params:
-    filepath: "data/raw/btcusdt_20250316.jsonl"
+    filepath: "data/raw/btcusdt_20250317.jsonl"
     data_cls: "OrderBookEntry"
 
 strategy:

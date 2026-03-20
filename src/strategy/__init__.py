@@ -2,3 +2,5 @@ from src.strategy.base_strategy import BaseStrategy
 from src.strategy.random_strategy_obe import RandomStrategyOBE
 from src.strategy.random_strategy_pt import RandomStrategyPT
 from src.strategy.rsi_strategy import RSIStrategy
+from src.strategy.rsi_strategy_numba import RSIStrategyNumba
+from src.strategy.kalman_ou_bertram_strategy import KalmanOUBertramStrategy

@@ -1,0 +1,39 @@
+bus:
+  market_data_capacity: 1024
+  signal_capacity: 256
+  approved_capacity: 256
+
+source:
+  type: "yahoo"
+  params:
+    symbols: ["BTC-USD", "ETH-USD"]
+    start: "2025-01-01"
+    end: "2026-01-01"
+    interval: "1h"
+
+strategy:
+  type: "kalman_ou_bertram"
+  params:
+    listener_id: "kalman"
+    symbol_y: "ETH-USD"
+    symbol_x: "BTC-USD"
+    delta: 1.0e-4
+    r: 1.0e-3
+    warmup_ticks: 60
+    spread_buffer_size: 252
+    refit_interval: 20
+    min_half_life: 5
+    max_half_life: 60
+    cost: 0.003
+    threshold_buffer: 1.15
+    capital: 100000.0
+
+risk:
+  type: "passthrough"
+  params:
+    listener_id: "passthrough_risk"
+
+execution:
+  type: "simulation"
+  params:
+    listener_id: "sim_exec"
