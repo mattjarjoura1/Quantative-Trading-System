@@ -10,3 +10,4 @@ orjson
 pytest-asyncio
 numba
 scipy
+statsmodels

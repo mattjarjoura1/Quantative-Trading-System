@@ -40,7 +40,6 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
         max_half_life: Reject OU fit if estimated half-life is above this.
         cost: Round-trip transaction cost as a fraction of notional.
         threshold_buffer: Widen Bertram thresholds by this factor.
-        capital: Notional capital for β-weighted position sizing.
     """
 
     CONSUMES = PriceTick
@@ -62,7 +61,6 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
         max_half_life: float = 1800.0,
         cost: float = 0.003,
         threshold_buffer: float = 1.15,
-        capital: float = 10000.0,
     ) -> None:
         """Initialise state, BufferViews, and all parameter fields.
 
@@ -82,7 +80,6 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
             max_half_life: Maximum acceptable OU half-life.
             cost: Round-trip transaction cost fraction.
             threshold_buffer: Bertram threshold widening factor.
-            capital: Notional capital for position sizing.
         """
         super().__init__(bus, listener_id, listen_channel, publish_channel)
 
@@ -96,7 +93,6 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
         self._max_half_life = max_half_life
         self._cost = cost
         self._threshold_buffer = threshold_buffer
-        self._capital = capital
 
         # BufferViews — latest() is stateless so from_start is irrelevant here
         self._views: dict[str, BufferView[PriceTick]] = {
@@ -170,7 +166,11 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
 
         # 4. Kalman update
         spread = self._kalman_update(price_x, price_y)
-        self._spread_buffer.append(spread)
+        timestamp = max(
+            self._views[self._symbol_y].latest().timestamp_ms,
+            self._views[self._symbol_x].latest().timestamp_ms,
+        )
+        self._spread_buffer.append((timestamp, spread))
         self._tick_count += 1
 
         # 5. Periodic OU/Bertram refit
@@ -261,7 +261,9 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
         if window < 30:
             return False
 
-        spreads = np.array(list(self._spread_buffer)[-window:])
+        timestamps = np.array([t for t, _ in list(self._spread_buffer)[-window:]])
+        spreads = np.array([s for _, s in list(self._spread_buffer)[-window:]])
+            
         x = spreads[:-1]
         y = spreads[1:]
 
@@ -270,23 +272,31 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
         if a >= 1.0 or a <= 0.0:
             return False
 
-        dt = 1.0
+        dt = np.mean(np.diff(timestamps)) / 1000.0 # convert ms to seconds
+        print(dt)
+        
         speed = -np.log(a) / dt
         mean = b / (1 - a)
         residuals = y - (a * x + b)
         residual_std = float(np.std(residuals))
         sigma = residual_std * np.sqrt(2 * speed / (1 - a ** 2))
         half_life = np.log(2) / speed
+        
+        print(f"OU fit results: speed={speed:.4f}, mean={mean:.4f}, sigma={sigma:.4f}, half-life={half_life:.2f} seconds")
 
-        if half_life < self._min_half_life or half_life > self._max_half_life:
+        if half_life < self._min_half_life * dt or half_life > self._max_half_life * dt:
+            print(f"OU fit rejected: half-life {half_life:.2f} out of bounds")
+            print(f"Lower bound: {self._min_half_life * dt:.2f} seconds, Upper bound: {self._max_half_life * dt:.2f} seconds")
             return False
         if sigma <= 0:
+            print(f"OU fit rejected: non-positive sigma {sigma:.4f}")
             return False
 
         self._speed = float(speed)
         self._mean = float(mean)
         self._sigma = float(sigma)
         self._half_life = float(half_life)
+        print("Returning from OU fit with parameters:")
         return True
 
     def _compute_bertram(self) -> bool:
@@ -320,6 +330,7 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
         # Feasibility gate: lower bound must be below the fixed upper bound of 4
         if c_dimless / 2 >= 4:
             self._state = "INACTIVE"
+            print("Breakpoint 1")
             return False
 
         res = minimize_scalar(lambda d: -G(d), bounds=(c_dimless / 2, 4), method="bounded")
@@ -327,11 +338,17 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
 
         if G(d_optimal) <= 0:
             self._state = "INACTIVE"
+            print("Breakpoint 2")
             return False
 
         d_practical = d_optimal * self._threshold_buffer
         self._long_threshold = self._mean - d_practical * sd
         self._short_threshold = self._mean + d_practical * sd
+        
+        print(f"Current Price of {self._symbol_x}: {self._latest_price[self._symbol_x]:.2f}, ")
+        print(f"Current Price of {self._symbol_y}: {self._latest_price[self._symbol_y]:.2f}")
+        print(f"Thresholds set: LONG below {self._long_threshold:.4f}, SHORT above {self._short_threshold:.4f}")
+        
         return True
 
     def _evaluate_signal(self, price_x: float, price_y: float) -> list[Signal]:
@@ -392,31 +409,21 @@ class KalmanOUBertramStrategy(BaseStrategy[PriceTick]):
             self._views[self._symbol_y].latest().timestamp_ms,
             self._views[self._symbol_x].latest().timestamp_ms,
         )
-
-        if self._state == "FLAT":
-            return [
-                Signal(timestamp_ms=timestamp, symbol=self._symbol_y,
-                       target_position=0.0, price=price_y),
-                Signal(timestamp_ms=timestamp, symbol=self._symbol_x,
-                       target_position=0.0, price=price_x),
-            ]
-
-        notional_y = self._capital / (1 + abs(self._beta))
-        notional_x = abs(self._beta) * self._capital / (1 + abs(self._beta))
-        qty_y = notional_y / price_y
-        qty_x = notional_x / price_x
-
+        
         if self._state == "LONG":
-            return [
-                Signal(timestamp_ms=timestamp, symbol=self._symbol_y,
-                       target_position=qty_y, price=price_y),
-                Signal(timestamp_ms=timestamp, symbol=self._symbol_x,
-                       target_position=-qty_x, price=price_x),
-            ]
-        # SHORT
+            target_y = 1.0
+            target_x = -abs(self._beta)
+        elif self._state == "SHORT":
+            target_y = -1.0
+            target_x = abs(self._beta)
+        else:
+            target_y = 0.0
+            target_x = 0.0
+            
         return [
             Signal(timestamp_ms=timestamp, symbol=self._symbol_y,
-                   target_position=-qty_y, price=price_y),
+                   target_position=target_y, price=price_y),
             Signal(timestamp_ms=timestamp, symbol=self._symbol_x,
-                   target_position=qty_x, price=price_x),
+                   target_position=target_x, price=price_x),
         ]
+        
